@@ -127,5 +127,5 @@ else:
     st.markdown("""
     <div style='text-align: center; color: #666; margin-top: 50px;'>
         En attente du fichier Excel...
-   
+    </div>
     """, unsafe_allow_html=True)
