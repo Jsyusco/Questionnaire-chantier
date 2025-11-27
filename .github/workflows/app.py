@@ -4,69 +4,91 @@ import pandas as pd
 # --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(page_title="Visualisation Projets", layout="centered")
 
-# --- STYLE CSS "GOOGLE FORMS" ---
-# On injecte du CSS pour donner l'apparence de Google Forms (fond gris, blocs blancs)
+# --- STYLE CSS "DARK MODE" ---
 st.markdown("""
     <style>
-    /* Couleur de fond générale */
+    /* 1. Fond général de l'application (Noir profond) */
     .stApp {
-        background-color: #f0ebf8;
+        background-color: #121212;
     }
     
-    /* Style des conteneurs (cartes blanches) */
+    /* 2. Conteneur Principal (Gris foncé) */
     .form-container {
-        background-color: white;
+        background-color: #1e1e1e;
         padding: 30px;
-        border-radius: 8px;
-        border-top: 10px solid #673ab7; /* La barre violette typique de Google Forms */
-        box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+        border-radius: 12px;
+        /* Bordure supérieure blanche pour le contraste */
+        border-top: 8px solid #ffffff; 
+        box-shadow: 0 4px 6px rgba(0,0,0,0.5);
         margin-bottom: 20px;
+        color: white;
     }
     
+    /* 3. Cartes de données (Gris intermédiaire) */
     .data-card {
-        background-color: white;
+        background-color: #2d2d2d;
         padding: 20px;
         border-radius: 8px;
-        border: 1px solid #dadce0;
+        border: 1px solid #404040; /* Bordure grise subtile */
         margin-bottom: 15px;
     }
 
-    /* Style des titres */
+    /* 4. Typographie */
     h1 {
-        font-family: 'Google Sans', Roboto, Arial, sans-serif;
-        color: #202124;
+        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+        color: #ffffff;
+        font-weight: 300;
     }
     
-    /* Style des libellés (colonnes) */
+    h2 {
+        color: #ffffff;
+        border-bottom: 1px solid #404040;
+        padding-bottom: 10px;
+    }
+
+    p {
+        color: #b0b0b0; /* Gris clair pour les descriptions */
+    }
+    
+    /* Libellé de la question (Blanc) */
     .label-text {
         font-size: 16px;
-        font-weight: 500;
-        color: #202124;
+        font-weight: 600;
+        color: #e0e0e0;
         margin-bottom: 8px;
     }
     
-    /* Style des réponses (valeurs) */
+    /* Réponse (Gris clair) */
     .value-text {
-        font-size: 14px;
-        color: #5f6368;
+        font-size: 15px;
+        color: #b0b0b0;
         padding-bottom: 5px;
-        border-bottom: 1px dotted #e0e0e0;
+        border-bottom: 1px dotted #505050;
     }
     
-    /* Cacher le menu par défaut Streamlit pour plus de propreté */
+    /* Modification des boutons Streamlit pour qu'ils s'intègrent mieux */
+    .stButton > button {
+        background-color: #ffffff;
+        color: #121212;
+        border: none;
+        font-weight: bold;
+    }
+    .stButton > button:hover {
+        background-color: #e0e0e0;
+        color: #000000;
+    }
+
+    /* Cache menu et footer standard */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     </style>
 """, unsafe_allow_html=True)
 
 # --- GESTION DE L'ÉTAT (NAVIGATION) ---
-# On initialise les variables de session si elles n'existent pas
 if 'step' not in st.session_state:
     st.session_state.step = 1
 if 'selected_project' not in st.session_state:
     st.session_state.selected_project = None
-if 'dataframe' not in st.session_state:
-    st.session_state.dataframe = None
 
 # --- FONCTIONS DE NAVIGATION ---
 def go_to_step_2():
@@ -76,33 +98,32 @@ def go_to_step_1():
     st.session_state.step = 1
 
 # --- CHARGEMENT DES DONNÉES ---
-# Fonction pour charger le fichier. 
-# NOTE: Remplacez 'votre_fichier.xlsx' par le chemin réel ou utilisez l'uploader ci-dessous.
 @st.cache_data
 def load_data(file):
     try:
-        # Lecture de la feuille "Site" comme demandé
-        df = pd.read_excel(file, sheet_name='Site')
-        # On remplit les cases vides par des tirets pour l'affichage
+        # Lecture de la feuille "Site"
+        # engine='openpyxl' est spécifié explicitement pour éviter les ambiguïtés
+        df = pd.read_excel(file, sheet_name='Site', engine='openpyxl')
         df = df.fillna("-") 
+        # Convertir toutes les données en string pour éviter les erreurs d'affichage
+        df = df.astype(str)
         return df
     except Exception as e:
-        st.error(f"Erreur lors de la lecture du fichier : {e}")
+        st.error(f"Erreur technique : {e}")
         return None
 
 # --- INTERFACE UTILISATEUR ---
 
-# Titre principal (simulé dans une carte)
-st.markdown('<div class="form-container"><h1>Suivi de Déploiement</h1><p>Sélectionnez un site pour voir les détails.</p></div>', unsafe_allow_html=True)
+# En-tête global
+st.markdown('<div class="form-container"><h1>Suivi de Déploiement</h1><p>Interface de consultation sombre.</p></div>', unsafe_allow_html=True)
 
-# Widget pour uploader le fichier (ou vous pouvez coder le chemin en dur)
+# Widget Upload
 uploaded_file = st.file_uploader("Chargez votre fichier Excel", type=["xlsx"])
 
 if uploaded_file is not None:
     df = load_data(uploaded_file)
     
     if df is not None:
-        # Récupération du nom de la première colonne (Intitulé)
         col_intitule = df.columns[0]
         
         # --- PAGE 1 : SÉLECTION ---
@@ -110,47 +131,60 @@ if uploaded_file is not None:
             st.markdown('<div class="form-container">', unsafe_allow_html=True)
             st.subheader("Sélection du Projet")
             
-            # Liste déroulante basée sur la colonne 1
             options = df[col_intitule].unique().tolist()
-            choice = st.selectbox("Quel site souhaitez-vous consulter ?", options)
+            choice = st.selectbox("Rechercher un site :", options)
             
             st.markdown('</div>', unsafe_allow_html=True)
             
-            # Bouton Suivant
-            if st.button("Suivant"):
-                st.session_state.selected_project = choice
-                go_to_step_2()
-                st.rerun()
+            # Bouton Suivant (centré ou aligné à droite via colonnes)
+            col1, col2, col3 = st.columns([1,1,1])
+            with col2:
+                if st.button("Suivant  ➜", use_container_width=True):
+                    st.session_state.selected_project = choice
+                    go_to_step_2()
+                    st.rerun()
 
         # --- PAGE 2 : AFFICHAGE DÉTAILLÉ ---
         elif st.session_state.step == 2:
-            # Filtrer les données pour le projet sélectionné
-            project_data = df[df[col_intitule] == st.session_state.selected_project].iloc[0]
-            
-            st.markdown(f'<div class="form-container"><h2>{st.session_state.selected_project}</h2></div>', unsafe_allow_html=True)
-            
-            # Boucle sur les colonnes pour afficher les infos
-            # On commence à l'index 1 pour sauter la colonne "Intitulé" déjà affichée en titre
-            cols = df.columns[1:] 
-            
-            for col_name in cols:
-                valeur = project_data[col_name]
+            # Récupération de la ligne correspondante
+            try:
+                project_data = df[df[col_intitule] == st.session_state.selected_project].iloc[0]
                 
-                # Création d'une "carte" pour chaque champ
-                html_card = f"""
-                <div class="data-card">
-                    <div class="label-text">{col_name}</div>
-                    <div class="value-text">{valeur}</div>
-                </div>
-                """
-                st.markdown(html_card, unsafe_allow_html=True)
-            
-            # Bouton Précédent
-            col_back, col_void = st.columns([1, 4])
-            with col_back:
-                if st.button("Précédent"):
-                    go_to_step_1()
-                    st.rerun()
+                # Titre du projet sélectionné
+                st.markdown(f'<div class="form-container"><h2>{st.session_state.selected_project}</h2></div>', unsafe_allow_html=True)
+                
+                # Affichage des colonnes
+                cols = df.columns[1:] 
+                
+                for col_name in cols:
+                    valeur = project_data[col_name]
+                    # Nettoyage si la valeur est "nan" string
+                    if valeur == 'nan': valeur = "-"
+
+                    html_card = f"""
+                    <div class="data-card">
+                        <div class="label-text">{col_name}</div>
+                        <div class="value-text">{valeur}</div>
+                    </div>
+                    """
+                    st.markdown(html_card, unsafe_allow_html=True)
+                
+                # Bouton Précédent
+                col1, col2, col3 = st.columns([1,1,1])
+                with col1:
+                    if st.button("⬅ Précédent"):
+                        go_to_step_1()
+                        st.rerun()
+            except IndexError:
+                st.error("Erreur : Projet introuvable dans les données.")
+                if st.button("Retour"):
+                     go_to_step_1()
+                     st.rerun()
 
 else:
-    st.info("Veuillez charger un fichier Excel pour commencer.")
+    # Message d'attente stylisé
+    st.markdown("""
+    <div style='text-align: center; color: #666; margin-top: 50px;'>
+        En attente du fichier Excel...
+    </div>
+    """, unsafe_allow_html=True)
