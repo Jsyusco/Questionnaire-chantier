@@ -105,7 +105,7 @@ if uploaded_file is not None:
         st.markdown(f"""
             <div class="condensed-block">
                 {condensed_content}
-            </div>
+            
         """, unsafe_allow_html=True)
 
     elif df is not None and df.empty:
