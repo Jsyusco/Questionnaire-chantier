@@ -102,8 +102,7 @@ if uploaded_file is not None:
                  condensed_content += f"**{display_label}** : Colonne Excel '{excel_col_name}' introuvable. \n"
 
         # Affichage dans un grand bloc unique
-        st.markdown(f"""
-            <div class="condensed-block">
+        st.markdown(f"""<div class="condensed-block">
                 {condensed_content}
             
         """, unsafe_allow_html=True)
