@@ -79,8 +79,7 @@ if uploaded_file is not None:
             
             options = df[col_intitule].unique().tolist()
             selected_project = st.selectbox("Site à consulter :", options)
-            
-            st.markdown('</div>', unsafe_allow_html=True)
+
 
         # 2. AFFICHAGE CONDENSÉ AVEC MAPPAGE
         st.markdown(f'<div class="form-container"><h2>Détails du projet : {selected_project}</h2></div>', unsafe_allow_html=True)
