@@ -100,7 +100,7 @@ if uploaded_file is not None:
                 condensed_content += f"**{display_label}** : {valeur} \n" 
             else:
                 # Ajouter une ligne d'erreur si la colonne est manquante
-                 condensed_content += f"{display_label} : Colonne Excel '{excel_col_name}' introuvable. \n"
+                 condensed_content += f"**{display_label}** : Colonne Excel '{excel_col_name}' introuvable. \n"
 
         # Affichage dans un grand bloc unique
         st.markdown(f"""
