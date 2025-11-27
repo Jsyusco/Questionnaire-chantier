@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 
 # --- CONFIGURATION DE LA PAGE ---
-st.set_page_config(page_title="Visualisation Projets Simple", layout="centered")
+st.set_page_config(page_title="Visualisation Projets Condensée", layout="centered")
 
 # --- STYLE CSS "DARK MODE" ---
 # Conserve le style sombre de la version précédente
@@ -22,14 +22,6 @@ st.markdown("""
         color: white;
     }
     
-    .data-card {
-        background-color: #2d2d2d;
-        padding: 20px;
-        border-radius: 8px;
-        border: 1px solid #404040;
-        margin-bottom: 15px;
-    }
-    
     /* Style pour le mode condensé (un seul bloc) */
     .condensed-block {
         background-color: #2d2d2d;
@@ -39,29 +31,28 @@ st.markdown("""
         margin-bottom: 15px;
         color: #e0e0e0;
         line-height: 1.6;
+        white-space: pre-wrap; /* Permet un meilleur affichage des retours à la ligne */
     }
 
     h1, h2 {
         color: #ffffff;
     }
     
-    .label-text {
-        font-size: 16px;
-        font-weight: 600;
-        color: #e0e0e0;
-        margin-bottom: 8px;
-    }
-    
-    .value-text {
-        font-size: 15px;
-        color: #b0b0b0;
-        padding-bottom: 5px;
-        border-bottom: 1px dotted #505050;
-    }
-    
     /* Cache menu et footer standard */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
+
+    /* Modification des boutons Streamlit pour qu'ils s'intègrent mieux */
+    .stButton > button {
+        background-color: #ffffff;
+        color: #121212;
+        border: none;
+        font-weight: bold;
+    }
+    .stButton > button:hover {
+        background-color: #e0e0e0;
+        color: #000000;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -80,8 +71,10 @@ def load_data(file):
 
 # --- INTERFACE UTILISATEUR PRINCIPALE ---
 
-st.markdown('<div class="form-container"><h1>Suivi de Déploiement</h1><p>Sélectionnez un site pour voir les détails instantanément.</p></div>', unsafe_allow_html=True)
+# En-tête de l'application
+st.markdown('<div class="form-container"><h1>Suivi de Déploiement Condensé</h1><p>Sélectionnez un site pour voir les détails instantanément dans un seul bloc.</p></div>', unsafe_allow_html=True)
 
+# 1. Widget Upload
 uploaded_file = st.file_uploader("Chargez votre fichier Excel", type=["xlsx"])
 
 if uploaded_file is not None:
@@ -90,58 +83,41 @@ if uploaded_file is not None:
     if df is not None and not df.empty:
         col_intitule = df.columns[0]
         
-        # --- SÉLECTION DU PROJET ---
+        # 2. SÉLECTION DU PROJET
         with st.container():
             st.markdown('<div class="form-container">', unsafe_allow_html=True)
-            st.subheader("Sélection du Projet et Mode d'Affichage")
+            st.subheader("Sélection du Projet")
             
-            # 1. Liste déroulante pour la sélection du projet
+            # Liste déroulante pour la sélection du projet
             options = df[col_intitule].unique().tolist()
             selected_project = st.selectbox("Site à consulter :", options)
             
-            # 2. Sélecteur de mode d'affichage
-            display_mode = st.radio(
-                "Choisissez le mode d'affichage :",
-                ('Indépendant (un bloc par colonne)', 'Condensé (un seul bloc)'),
-                horizontal=True
-            )
-            
             st.markdown('</div>', unsafe_allow_html=True)
 
-        # --- AFFICHAGE DES RÉSULTATS ---
+        # 3. AFFICHAGE CONDENSÉ DES RÉSULTATS
+        
+        # Titre pour l'affichage
         st.markdown(f'<div class="form-container"><h2>Détails du projet : {selected_project}</h2></div>', unsafe_allow_html=True)
 
         # Filtrer les données pour le projet sélectionné
         project_data = df[df[col_intitule] == selected_project].iloc[0]
         cols_to_display = df.columns[1:] 
         
-        # --- MODE 1 : INDÉPENDANT (Plusieurs blocs) ---
-        if display_mode == 'Indépendant (un bloc par colonne)':
-            for col_name in cols_to_display:
-                valeur = project_data[col_name]
-                
-                html_card = f"""
-                <div class="data-card">
-                    <div class="label-text">{col_name}</div>
-                    <div class="value-text">{valeur}</div>
-                </div>
-                """
-                st.markdown(html_card, unsafe_allow_html=True)
-
-        # --- MODE 2 : CONDENSÉ (Un seul bloc) ---
-        elif display_mode == 'Condensé (un seul bloc)':
-            condensed_content = ""
-            for col_name in cols_to_display:
-                valeur = project_data[col_name]
-                # Formatage simple: Nom de la colonne en gras, valeur après le ":"
-                condensed_content += f"**{col_name}** : {valeur} <br>"
+        # Construction du contenu condensé
+        condensed_content = ""
+        for col_name in cols_to_display:
+            valeur = project_data[col_name]
             
-            # Affichage dans un grand bloc unique
-            st.markdown(f"""
-                <div class="condensed-block">
-                    {condensed_content}
-                </div>
-            """, unsafe_allow_html=True)
+            # Utilisation de Markdown pour le gras et les retours à la ligne
+            # Note: Le \n est interprété par le CSS 'white-space: pre-wrap;'
+            condensed_content += f"**{col_name}** : {valeur} \n" 
+        
+        # Affichage dans un grand bloc unique
+        st.markdown(f"""
+            <div class="condensed-block">
+                {condensed_content}
+            </div>
+        """, unsafe_allow_html=True)
 
     elif df is not None and df.empty:
         st.error("Le fichier Excel chargé est vide ou la feuille 'Site' est vide.")
