@@ -1,17 +1,26 @@
 import streamlit as st
 import pandas as pd
 
-# --- CONFIGURATION DE LA PAGE ---
-st.set_page_config(page_title="Visualisation Projets Condensée", layout="centered")
+# --- MAPPAGE DES COLONNES ---
+# Clé = Nom exact de la colonne dans le fichier Excel (à vérifier !)
+# Valeur = Nom descriptif que l'utilisateur verra à l'écran
+COLUMN_MAPPING = {
+    'L [Plan de Déploiement]': 'Bornes Lentes',
+    'R [Plan de Déploiement]': 'Bornes Rapides',
+    'UR [Plan de Déploiement]': 'Bornes Ultra-rapides',
+    'Pré L [Plan de Déploiement]': 'Pré-équipement Bornes Lentes',
+    'Pré R [Plan de Déploiement]': 'Pré-équipement Bornes Rapides',
+    'Pré UR [Plan de Déploiement]': 'Pré-équipement Bornes Ultra-rapides',
+    'Fournisseur Bornes AC [Bornes]': 'Fournisseur Bornes AC',
+    'Fournisseur Bornes DC [Bornes]': 'Fournisseur Bornes DC',
+}
 
-# --- STYLE CSS "DARK MODE" ---
-# Conserve le style sombre de la version précédente
+# --- CONFIGURATION ET STYLE ---
+st.set_page_config(page_title="Visualisation Projets Mappée", layout="centered")
+
 st.markdown("""
     <style>
-    .stApp {
-        background-color: #121212;
-    }
-    
+    .stApp { background-color: #121212; }
     .form-container {
         background-color: #1e1e1e;
         padding: 30px;
@@ -21,8 +30,6 @@ st.markdown("""
         margin-bottom: 20px;
         color: white;
     }
-    
-    /* Style pour le mode condensé (un seul bloc) */
     .condensed-block {
         background-color: #2d2d2d;
         padding: 20px;
@@ -31,28 +38,12 @@ st.markdown("""
         margin-bottom: 15px;
         color: #e0e0e0;
         line-height: 1.6;
-        white-space: pre-wrap; /* Permet un meilleur affichage des retours à la ligne */
+        white-space: pre-wrap;
     }
-
-    h1, h2 {
-        color: #ffffff;
-    }
-    
-    /* Cache menu et footer standard */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-
-    /* Modification des boutons Streamlit pour qu'ils s'intègrent mieux */
-    .stButton > button {
-        background-color: #ffffff;
-        color: #121212;
-        border: none;
-        font-weight: bold;
-    }
-    .stButton > button:hover {
-        background-color: #e0e0e0;
-        color: #000000;
-    }
+    h1, h2 { color: #ffffff; }
+    #MainMenu, footer { visibility: hidden; }
+    .stButton > button { background-color: #ffffff; color: #121212; border: none; font-weight: bold; }
+    .stButton > button:hover { background-color: #e0e0e0; color: #000000; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -71,10 +62,8 @@ def load_data(file):
 
 # --- INTERFACE UTILISATEUR PRINCIPALE ---
 
-# En-tête de l'application
-st.markdown('<div class="form-container"><h1>Suivi de Déploiement Condensé</h1><p>Sélectionnez un site pour voir les détails instantanément dans un seul bloc.</p></div>', unsafe_allow_html=True)
+st.markdown('<div class="form-container"><h1>Suivi de Déploiement Personnalisé</h1><p>Veuillez charger votre fichier et sélectionner un site.</p></div>', unsafe_allow_html=True)
 
-# 1. Widget Upload
 uploaded_file = st.file_uploader("Chargez votre fichier Excel", type=["xlsx"])
 
 if uploaded_file is not None:
@@ -83,35 +72,37 @@ if uploaded_file is not None:
     if df is not None and not df.empty:
         col_intitule = df.columns[0]
         
-        # 2. SÉLECTION DU PROJET
+        # 1. SÉLECTION DU PROJET
         with st.container():
             st.markdown('<div class="form-container">', unsafe_allow_html=True)
-            st.subheader("Sélection du Projet")
+            st.subheader("Sélection du Site")
             
-            # Liste déroulante pour la sélection du projet
             options = df[col_intitule].unique().tolist()
             selected_project = st.selectbox("Site à consulter :", options)
             
             st.markdown('</div>', unsafe_allow_html=True)
 
-        # 3. AFFICHAGE CONDENSÉ DES RÉSULTATS
-        
-        # Titre pour l'affichage
+        # 2. AFFICHAGE CONDENSÉ AVEC MAPPAGE
         st.markdown(f'<div class="form-container"><h2>Détails du projet : {selected_project}</h2></div>', unsafe_allow_html=True)
 
-        # Filtrer les données pour le projet sélectionné
         project_data = df[df[col_intitule] == selected_project].iloc[0]
-        cols_to_display = df.columns[1:] 
         
         # Construction du contenu condensé
         condensed_content = ""
-        for col_name in cols_to_display:
-            valeur = project_data[col_name]
-            
-            # Utilisation de Markdown pour le gras et les retours à la ligne
-            # Note: Le \n est interprété par le CSS 'white-space: pre-wrap;'
-            condensed_content += f"**{col_name}** : {valeur} \n" 
         
+        # On itère sur le dictionnaire de mappage (les clés sont les noms des colonnes Excel)
+        for excel_col_name, display_label in COLUMN_MAPPING.items():
+            
+            # Vérifier que la colonne existe dans le DataFrame chargé
+            if excel_col_name in project_data:
+                valeur = project_data[excel_col_name]
+                
+                # Format d'affichage : Nom Lisible en gras : Valeur
+                condensed_content += f"**{display_label}** : {valeur} \n" 
+            else:
+                # Ajouter une ligne d'erreur si la colonne est manquante
+                 condensed_content += f"**{display_label}** : Colonne Excel '{excel_col_name}' introuvable. \n"
+
         # Affichage dans un grand bloc unique
         st.markdown(f"""
             <div class="condensed-block">
@@ -123,7 +114,6 @@ if uploaded_file is not None:
         st.error("Le fichier Excel chargé est vide ou la feuille 'Site' est vide.")
 
 else:
-    # Message d'attente stylisé
     st.markdown("""
     <div style='text-align: center; color: #666; margin-top: 50px;'>
         En attente du fichier Excel...
