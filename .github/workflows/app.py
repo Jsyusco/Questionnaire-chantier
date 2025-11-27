@@ -62,7 +62,7 @@ def load_data(file):
 
 # --- INTERFACE UTILISATEUR PRINCIPALE ---
 
-st.markdown('<div class="form-container"><h1>Suivi de Déploiement Personnalisé</h1><p>Veuillez charger votre fichier et sélectionner un site.</p></div>', unsafe_allow_html=True)
+st.markdown('<div class="form-container"><h1>Suivi de Déploiement</h1><p>Veuillez charger votre fichier et sélectionner un site.</p></div>', unsafe_allow_html=True)
 
 uploaded_file = st.file_uploader("Chargez votre fichier Excel", type=["xlsx"])
 
@@ -74,7 +74,7 @@ if uploaded_file is not None:
         
         # 1. SÉLECTION DU PROJET
         with st.container():
-            st.markdown('<div class="form-container">', unsafe_allow_html=True)
+            
             st.subheader("Sélection du Site")
             
             options = df[col_intitule].unique().tolist()
