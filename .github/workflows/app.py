@@ -74,8 +74,7 @@ if uploaded_file is not None:
         
         # 1. SÉLECTION DU PROJET
         with st.container():
-            st.markdown('<div class="form-container">', unsafe_allow_html=True)
-            st.subheader("Sélection du Site")
+             st.subheader("Sélection du Site")
             
             options = df[col_intitule].unique().tolist()
             selected_project = st.selectbox("Site à consulter :", options)
