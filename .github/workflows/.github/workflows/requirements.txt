@@ -1,0 +1,7 @@
+streamlit
+folium
+pandas
+numpy
+datetime
+streamlit_folium
+openpyxl
