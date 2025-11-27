@@ -130,4 +130,26 @@ if uploaded_file is not None:
 
         # --- MODE 2 : CONDENSÉ (Un seul bloc) ---
         elif display_mode == 'Condensé (un seul bloc)':
-            condensed_content =
+            condensed_content = ""
+            for col_name in cols_to_display:
+                valeur = project_data[col_name]
+                # Formatage simple: Nom de la colonne en gras, valeur après le ":"
+                condensed_content += f"**{col_name}** : {valeur} <br>"
+            
+            # Affichage dans un grand bloc unique
+            st.markdown(f"""
+                <div class="condensed-block">
+                    {condensed_content}
+                </div>
+            """, unsafe_allow_html=True)
+
+    elif df is not None and df.empty:
+        st.error("Le fichier Excel chargé est vide ou la feuille 'Site' est vide.")
+
+else:
+    # Message d'attente stylisé
+    st.markdown("""
+    <div style='text-align: center; color: #666; margin-top: 50px;'>
+        En attente du fichier Excel...
+    </div>
+    """, unsafe_allow_html=True)
