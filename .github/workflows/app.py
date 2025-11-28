@@ -217,54 +217,71 @@ def render_field(row):
         st.session_state['form_answers'][q_id] = val
 
 
+def check_condition(row, answers):
+    """
+    Vérifie si une question DOIT être affichée en fonction des réponses précédentes.
+    (Non modifié - il fonctionne pour les questions individuelles)
+    """
+    try:
+        is_conditional = int(row['Condition on']) == 1
+    except:
+        is_conditional = False
+
+    if not is_conditional:
+        return True
+
+    condition_rule = str(row['Condition value']).strip()
+    if not condition_rule:
+        return True
+    
+    try:
+        if '=' in condition_rule:
+            target_id_str, target_value = condition_rule.split('=', 1)
+            target_id = int(target_id_str.strip())
+            target_value = target_value.strip()
+            
+            user_answer = answers.get(target_id)
+            
+            # Correction pour les select qui sont "" si rien n'est sélectionné.
+            if user_answer is None or str(user_answer).strip() == "":
+                return False 
+            
+            return str(user_answer) == str(target_value)
+        else:
+            return True 
+    except Exception as e:
+        return True
+
 def get_visible_sections(df, answers):
     """
     Détermine la liste ordonnée des sections qui DOIVENT être affichées 
-    en fonction de la question conditionnelle principale (Q4).
+    en fonction de toutes les conditions.
     """
     all_sections = df['section'].unique().tolist()
-    visible_sections = []
+    final_visible_sections = []
     
-    # La section 'Identification' doit toujours être visible
-    # La section 'Phase' (où se trouve la Q4) doit toujours être visible
-    
-    # On itère sur toutes les sections pour vérifier si une question dedans est conditionnelle
     for section_name in all_sections:
+        # On vérifie si au moins UNE question de cette section est visible
         section_questions = df[df['section'] == section_name]
         is_visible = False
         
-        # On vérifie si au moins UNE question de cette section est visible
-        for index, row in section_questions.iterrows():
-            if check_condition(row, answers):
-                is_visible = True
-                break
+        # Le premier élément du fichier (souvent Identification/Phase) est toujours visible.
+        # On assume que les deux premières sections ne sont pas conditionnelles à elles-mêmes.
+        if all_sections.index(section_name) < 2: 
+            is_visible = True
+        else:
+            for index, row in section_questions.iterrows():
+                if check_condition(row, answers):
+                    is_visible = True
+                    break
         
         if is_visible:
-            visible_sections.append(section_name)
-            
-    # La première section du fichier est souvent l'identification et doit toujours être là.
-    # On s'assure que 'Identification' et 'Phase' sont bien incluses même si elles n'ont pas de condition explicite.
-    if 'Identification' in all_sections and 'Identification' not in visible_sections:
-         visible_sections.insert(0, 'Identification')
-    if 'Phase' in all_sections and 'Phase' not in visible_sections:
-         # On la place après Identification s'ils sont distincts
-         try:
-            id_index = visible_sections.index('Identification')
-            if 'Phase' not in visible_sections:
-                visible_sections.insert(id_index + 1, 'Phase')
-         except ValueError: # 'Identification' n'était pas la première (si le fichier est mal ordonné)
-             visible_sections.append('Phase')
-    
-    # Utiliser un Set pour garantir l'unicité tout en maintenant l'ordre
-    unique_visible_sections = []
-    for sec in all_sections:
-        if sec in visible_sections:
-            if sec not in unique_visible_sections:
-                unique_visible_sections.append(sec)
+            final_visible_sections.append(section_name)
                 
-    return unique_visible_sections
+    return final_visible_sections
 
 def validate_section(df, current_section_name):
+    # ... (La fonction validate_section n'est pas modifiée) ...
     """Vérifie si toutes les questions OBLIGATOIRES et VISIBLES sont remplies."""
     section_questions = df[df['section'] == current_section_name]
     answers = st.session_state['form_answers']
@@ -285,8 +302,6 @@ def validate_section(df, current_section_name):
             if answer is None:
                 is_empty = True
             elif isinstance(answer, (str, int, float)) and (str(answer).strip() == "" or str(answer) == "0"):
-                 # Gère les chaînes vides, et les selectbox qui valent "" par défaut
-                 # Gère les number input à 0 si la question attend un nombre > 0 (si non spécifié, on accepte 0)
                 if row['type'].strip().lower() != 'number':
                     is_empty = True
                 elif row['type'].strip().lower() == 'select' and str(answer).strip() == "":
@@ -305,35 +320,43 @@ def validate_section(df, current_section_name):
     
     return True
 
-# --- ACTIONS DE NAVIGATION ---
 def navigate(direction, df):
     """Fonction principale de navigation avec validation et saut de sections."""
     
     # 1. Obtenir la liste des sections VISIBLES
+    # IMPORTANT : On doit refaire cette liste car une réponse peut avoir changé les sections visibles
     visible_sections = get_visible_sections(df, st.session_state['form_answers'])
     
-    # 2. Trouver l'index actuel dans la liste visible
-    current_section_name = visible_sections[st.session_state['current_section_index']]
+    # 2. Gérer la navigation "Précédent" (pas de validation nécessaire)
+    if direction == 'prev':
+        new_index = st.session_state['current_section_index'] - 1
+        if new_index >= 0:
+            st.session_state['current_section_index'] = new_index
+        return
+        
+    # --- Navigation "Suivant" avec Validation ---
     
-    if direction == 'next':
-        # --- VALIDATION ---
-        if validate_section(df, current_section_name):
-            # 3. Trouver la PROCHAINE section VUE
-            try:
-                # On cherche l'index de la section suivante dans la liste visible
-                new_index = st.session_state['current_section_index'] + 1
-                if new_index < len(visible_sections):
-                    st.session_state['current_section_index'] = new_index
-                else:
-                    st.session_state['current_section_index'] = len(visible_sections) - 1
-            except IndexError:
-                st.session_state['current_section_index'] = len(visible_sections) - 1
-                
-    elif direction == 'prev':
-        # 3. Trouver la section PRÉCÉDENTE VUE
-        st.session_state['current_section_index'] -= 1
-        if st.session_state['current_section_index'] < 0:
-            st.session_state['current_section_index'] = 0
+    # 3. Trouver l'index actuel dans la liste visible
+    try:
+        current_section_name = visible_sections[st.session_state['current_section_index']]
+    except IndexError:
+        # Peut arriver si l'index est trop grand après une modification des conditions.
+        st.session_state['current_section_index'] = 0
+        return
+        
+    # 4. Validation
+    if validate_section(df, current_section_name):
+        
+        # 5. Calculer le nouvel index
+        new_index = st.session_state['current_section_index'] + 1
+        
+        if new_index < len(visible_sections):
+            # C'est bon, on peut avancer
+            st.session_state['current_section_index'] = new_index
+        else:
+            # On est arrivé à la fin de la liste visible (ce qui déclenchera le bouton "Soumettre")
+            # On s'assure que l'index ne dépasse pas la taille de la liste
+            st.session_state['current_section_index'] = len(visible_sections) - 1
 
 # --- MAIN APP ---
 
@@ -341,10 +364,28 @@ st.markdown('<div class="form-container"><h1>📝 Formulaire de Travaux</h1></di
 
 uploaded_file = st.file_uploader("Chargez le fichier Excel de structure (Questions)", type=["xlsx"])
 
+# ... (Dans le bloc MAIN APP) ...
+
 if uploaded_file is not None:
     df = load_form_structure(uploaded_file)
     
     if df is not None:
+        
+        # 1. Mise à jour DYNAMIQUE des sections visibles à chaque exécution
+        visible_sections = get_visible_sections(df, st.session_state['form_answers'])
+        
+        # 2. Sécurité de l'index : Assure que l'index reste dans les limites de la nouvelle liste
+        if not visible_sections:
+            st.warning("Aucune section visible après Identification/Phase.")
+            return # Sortir si rien n'est visible
+            
+        if st.session_state['current_section_index'] >= len(visible_sections):
+             # Rediriger vers la fin (bouton Soumettre)
+             st.session_state['current_section_index'] = len(visible_sections) - 1
+        if st.session_state['current_section_index'] < 0:
+             st.session_state['current_section_index'] = 0
+        
+        # ... (le reste du code est inchangé) ...
         
         # Liste des sections à afficher (dynamique)
         visible_sections = get_visible_sections(df, st.session_state['form_answers'])
