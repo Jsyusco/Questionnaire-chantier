@@ -222,7 +222,7 @@ def render_field(row):
     val = None
 
     with st.container():
-        
+        st.markdown('<div class="question-block">', unsafe_allow_html=True) # Début du bloc Question
         
         # Affichage manuel de la Question (en haut)
         st.markdown(f"**{display_question}**", unsafe_allow_html=True)
@@ -286,7 +286,8 @@ if uploaded_file is not None:
         
         # --- SÉLECTION DU PROJET ---
         if st.session_state['selected_project'] is None:
-            st.markdown('<div class="form-container">', unsafe_allow_html=True)
+            # Ligne supprimée : st.markdown('<div class="form-container">', unsafe_allow_html=True)
+            
             st.markdown("### 🏗️ Sélection du Projet")
             
             # Liste des intitulés de projets
@@ -339,7 +340,8 @@ if uploaded_file is not None:
             else:
                 st.error("La colonne 'Intitulé' n'a pas été trouvée dans la feuille 'site'.")
             
-            st.markdown('</div>', unsafe_allow_html=True)
+            # Ligne déplacée : st.markdown('</div>', unsafe_allow_html=True) doit être supprimée si la balise d'ouverture l'est aussi.
+            # Cependant, nous allons ouvrir le conteneur pour le reste du formulaire principal.
         
         else:
             # --- AFFICHAGE DU FORMULAIRE (projet déjà sélectionné) ---
