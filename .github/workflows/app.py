@@ -286,7 +286,6 @@ if uploaded_file is not None:
         
         # --- SÉLECTION DU PROJET ---
         if st.session_state['selected_project'] is None:
-            # Ligne supprimée : st.markdown('<div class="form-container">', unsafe_allow_html=True)
             
             st.markdown("### 🏗️ Sélection du Projet")
             
@@ -325,7 +324,19 @@ if uploaded_file is not None:
                         if col_name in project_row.index:
                             value = project_row[col_name]
                             project_info[display_name] = value
+
+                    # --- DÉBUT DE LA MODIFICATION POUR LES 3 COLONNES ---
+                    cols = st.columns(3)
+                    
+                    # Utiliser un compteur pour distribuer les éléments
+                    i = 0
+                    for display_name, value in project_info.items():
+                        # Afficher dans la colonne i % 3 (0, 1, 2, 0, 1, 2, ...)
+                        with cols[i % 3]:
                             st.write(f"**{display_name}:** {value}")
+                        i += 1
+                    
+                    # --- FIN DE LA MODIFICATION POUR LES 3 COLONNES ---
                     
                     st.markdown("---")
                     
@@ -339,9 +350,6 @@ if uploaded_file is not None:
 
             else:
                 st.error("La colonne 'Intitulé' n'a pas été trouvée dans la feuille 'site'.")
-            
-            # Ligne déplacée : st.markdown('</div>', unsafe_allow_html=True) doit être supprimée si la balise d'ouverture l'est aussi.
-            # Cependant, nous allons ouvrir le conteneur pour le reste du formulaire principal.
         
         else:
             # --- AFFICHAGE DU FORMULAIRE (projet déjà sélectionné) ---
@@ -350,9 +358,16 @@ if uploaded_file is not None:
             st.markdown('<div class="form-container">', unsafe_allow_html=True)
             st.markdown(f"### 🏗️ Projet : {st.session_state['selected_project']}")
             
+            # Affichage des infos dans l'expander (laisse le code original en liste pour cet expander)
             with st.expander("📊 Voir les informations du projet"):
+                # --- MODIFICATION DE L'EXPANDER POUR AFFICHER EN 3 COLONNES AUSSI ---
+                cols_expander = st.columns(3)
+                i_expander = 0
                 for key, value in st.session_state['project_data'].items():
-                    st.write(f"**{key}:** {value}")
+                     with cols_expander[i_expander % 3]:
+                          st.write(f"**{key}:** {value}")
+                     i_expander += 1
+                # --- FIN DE LA MODIFICATION DANS L'EXPANDER ---
             
             if st.button("🔄 Changer de projet"):
                 st.session_state['selected_project'] = None
