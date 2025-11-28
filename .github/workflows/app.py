@@ -51,7 +51,7 @@ def load_site_data(file):
         st.error(f"Erreur lors de la lecture de la feuille 'site' : {e}")
         return None
 
-# --- GESTION DE L'ÉTAT ---
+# --- ÉTAT ---
 if 'form_answers' not in st.session_state:
     st.session_state['form_answers'] = {}
 if 'current_section_index' not in st.session_state:
@@ -105,7 +105,7 @@ def validate_mandatory_questions(section_df, answers):
                 missing.append(f"Question {q_id}: {row['question']}")
     return len(missing) == 0, missing
 
-def render_field(row):
+def render_field(row, answers):
     q_id = int(row['id'])
     q_text = row['question']
     q_type = str(row['type']).strip().lower()
@@ -115,7 +115,7 @@ def render_field(row):
 
     display_question = f"{q_id}. {q_text}" + (' <span class="mandatory">*</span>' if q_mandatory else "")
     widget_key = f"q_{q_id}" 
-    current_val = st.session_state['form_answers'].get(q_id)
+    current_val = answers.get(q_id)
     val = None
 
     with st.container():
@@ -143,7 +143,7 @@ def render_field(row):
                 st.info("Image déjà chargée précédemment.") 
 
         if val is not None:
-            st.session_state['form_answers'][q_id] = val
+            answers[q_id] = val
 
 def find_phase_selection_section(df):
     phase_questions = df[df['question'].str.contains("phase", case=False, na=False)]
@@ -225,6 +225,7 @@ if uploaded_file is not None:
                 st.session_state['selected_project'] = None
                 st.session_state['current_section_index'] = 0
                 st.session_state['form_answers'] = {}
+                st.session_state['current_phase'] = 1
                 st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
 
@@ -242,15 +243,16 @@ if uploaded_file is not None:
             st.markdown(f"## {current_section_name}")
             section_questions = df[df['section'] == current_section_name]
             visible_questions_count = 0
+            current_phase_answers = get_current_phase_answers()
             for index, row in section_questions.iterrows():
-                if check_condition(row, get_current_phase_answers()):
-                    render_field(row)
+                if check_condition(row, current_phase_answers):
+                    render_field(row, current_phase_answers)
                     visible_questions_count += 1
             if visible_questions_count == 0:
                 st.info("Aucune question visible pour cette section selon vos choix précédents.")
 
             # Validation obligatoire
-            is_valid, missing_questions = validate_mandatory_questions(section_questions, get_current_phase_answers())
+            is_valid, missing_questions = validate_mandatory_questions(section_questions, current_phase_answers)
 
             # --- Déclaration nouvelle phase ---
             st.markdown("---")
@@ -266,7 +268,7 @@ if uploaded_file is not None:
                 is_valid_phase, missing_phase = True, []
                 for sec in visible_sections:
                     sec_df = df[df['section'] == sec]
-                    valid_sec, missing_sec = validate_mandatory_questions(sec_df, get_current_phase_answers())
+                    valid_sec, missing_sec = validate_mandatory_questions(sec_df, current_phase_answers)
                     if not valid_sec:
                         is_valid_phase = False
                         missing_phase.extend(missing_sec)
@@ -312,9 +314,8 @@ if uploaded_file is not None:
                         if is_valid:
                             st.success("✅ Formulaire terminé avec succès et prêt à être soumis !")
                             st.write("**Projet :**", st.session_state['selected_project'])
-                            st.write("**Récapitulatif des réponses :**")
-                            display_data = {k: str(v) for k,v in get_current_phase_answers().items()}
-                            st.json(display_data)
+                            st.write("**Récapitulatif des réponses de la phase courante :**")
+                            st.json(current_phase_answers)
                             st.info("Vous pouvez maintenant traiter ces données (enregistrement en base de données, exportation Excel, etc.)")
                         else:
                             st.markdown('<div class="validation-error">', unsafe_allow_html=True)
