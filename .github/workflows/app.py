@@ -370,12 +370,22 @@ if uploaded_file is not None:
                                 is_valid_phase = False
                                 missing_phase.extend(missing_sec)
 
-                  if st.button("✅ Démarrer une nouvelle phase"):
-                            st.session_state['current_phase'] += 1
-                            new_phase_key = get_current_phase_key()
-                            st.session_state['form_answers'][new_phase_key] = {}
+                 if st.button("✅ Démarrer une nouvelle phase"):
+                        # Incrémente la phase
+                        st.session_state['current_phase'] += 1
+                        new_phase_key = get_current_phase_key()
+                        st.session_state['form_answers'][new_phase_key] = {}
+                    
+                        # Redirige vers la section de sélection de phase
+                        target_section = find_phase_selection_section(df)
+                        visible_sections = [sec for sec in df['section'].unique() if check_section_condition(df[df['section']==sec], {})]
+                    
+                        if target_section and target_section in visible_sections:
+                            st.session_state['current_section_index'] = visible_sections.index(target_section)
+                        else:
                             st.session_state['current_section_index'] = 0
-                            st.rerun()
+                    
+                        st.rerun()
 
                         else:
                             st.markdown('<div class="validation-error">', unsafe_allow_html=True)
