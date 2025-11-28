@@ -439,7 +439,3 @@ if uploaded_file is not None:
                             for missing in missing_questions:
                                 st.write(f"• {missing}")
                             st.markdown('</div>', unsafe_allow_html=True)
-
----
-
-Avez-vous besoin d'aide pour la partie exportation ou traitement des données après la soumission du formulaire ?
