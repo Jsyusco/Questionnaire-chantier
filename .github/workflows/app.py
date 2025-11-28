@@ -168,7 +168,7 @@ def render_field(row):
     current_val = st.session_state['form_answers'].get(q_id)
 
     with st.container():
-        st.markdown(f'<div class="question-block">', unsafe_allow_html=True)
+        
         
         # --- CORRECTION APPORTÉE ICI ---
         # 1. On construit le titre en HTML
