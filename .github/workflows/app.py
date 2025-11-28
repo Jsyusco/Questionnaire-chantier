@@ -281,4 +281,146 @@ elif st.session_state['step'] == 'IDENTIFICATION':
             st.markdown('<div class="error-box"><b>⚠️ Erreur de validation :</b><br>' + 
                         '<br>'.join([f"- {e}" for e in errors]) + '</div>', 
                         unsafe_allow_html=True)
-    st
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# 4. LA BOUCLE (LOGIQUE PRINCIPALE - Maintenant step 4)
+elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
+    
+    # HEADER PROJET (Toujours visible)
+    with st.expander(f"📍 Projet : {st.session_state['project_data'].get('Intitulé')}", expanded=False):
+        st.write("Phases et Identification déjà complétées :")
+        for idx, item in enumerate(st.session_state['collected_data']):
+            st.write(f"• **{item['phase_name']}** : {len(item['answers'])} réponses")
+        st.markdown("---")
+        st.json(st.session_state['project_data'])
+
+    # --- A. DÉCISION (HUB) ---
+    if st.session_state['step'] == 'LOOP_DECISION':
+        # ... (Logique de décision inchangée)
+        st.markdown('<div class="phase-block">', unsafe_allow_html=True)
+        st.markdown("### 🔄 Gestion des Phases de Travaux")
+        
+        st.markdown("---")
+        st.markdown("#### Souhaitez-vous déclarer une nouvelle phase de travail ?")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("➕ OUI, Ajouter une phase de travail"):
+                # Passe en mode remplissage
+                st.session_state['step'] = 'FILL_PHASE'
+                st.session_state['current_phase_temp'] = {} 
+                st.session_state['current_phase_name'] = None
+                st.session_state['iteration_id'] = str(uuid.uuid4())
+                st.rerun()
+        with col2:
+            if st.button("🏁 NON, Terminer l'audit"):
+                st.session_state['step'] = 'FINISHED'
+                st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # --- B. REMPLISSAGE (FORMULAIRE) ---
+    elif st.session_state['step'] == 'FILL_PHASE':
+        # ... (Logique de remplissage modifiée)
+        df = st.session_state['df_struct']
+        
+        st.markdown(f'<div class="phase-block">', unsafe_allow_html=True)
+        
+        # ***************************************************************************************
+        # DÉBUT DE LA MODIFICATION POUR EXCLURE 'IDENTIFICATION'
+        # Détermine le nom de la section d'identification (première section du fichier Excel)
+        if st.session_state['collected_data']:
+            # Récupère le nom de l'identification dans les données collectées (méthode plus robuste)
+            ID_SECTION_NAME = st.session_state['collected_data'][0]['phase_name']
+        else:
+            # Sinon, suppose la première section du dataframe (comme dans l'étape IDENTIFICATION)
+            ID_SECTION_NAME = df['section'].iloc[0] if not df.empty else None
+        
+        # Filtre les phases disponibles : toutes les sections uniques SAUF la section d'identification
+        all_sections = df['section'].unique().tolist()
+        available_phases = [sec for sec in all_sections if sec != ID_SECTION_NAME and sec]
+
+        # FIN DE LA MODIFICATION POUR EXCLURE 'IDENTIFICATION'
+        # ***************************************************************************************
+        
+        if not st.session_state['current_phase_name']:
+             st.markdown("### 📑 Sélection de la phase")
+             phase_choice = st.selectbox("Quelle phase souhaitez-vous renseigner ?", [""] + available_phases)
+             if phase_choice:
+                 st.session_state['current_phase_name'] = phase_choice
+                 st.rerun()
+             if st.button("⬅️ Retour au Menu Principal"):
+                 st.session_state['step'] = 'LOOP_DECISION'
+                 st.rerun()
+                 
+        else:
+            current_phase = st.session_state['current_phase_name']
+            st.markdown(f"### 📝 Remplissage : {current_phase}")
+            
+            if st.button("🔄 Changer de phase"):
+                st.session_state['current_phase_name'] = None
+                st.session_state['current_phase_temp'] = {}
+                st.rerun()
+            
+            st.markdown("---")
+            
+            section_questions = df[df['section'] == current_phase]
+            
+            visible_count = 0
+            for _, row in section_questions.iterrows():
+                if check_condition(row, st.session_state['current_phase_temp'], st.session_state['collected_data']): 
+                    render_question(row, st.session_state['current_phase_temp'], st.session_state['iteration_id'])
+                    visible_count += 1
+            
+            if visible_count == 0:
+                st.warning("Aucune question applicable pour cette phase. Vérifiez les conditions d'affichage et l'orthographe de la section dans votre fichier Excel.")
+
+            st.markdown("---")
+            
+            # BOUTONS D'ACTION
+            c1, c2 = st.columns([1, 2])
+            with c1:
+                if st.button("❌ Annuler cette phase"):
+                    st.session_state['step'] = 'LOOP_DECISION'
+                    st.rerun()
+            with c2:
+                if st.button("💾 Valider et Enregistrer la phase"):
+                    is_valid, errors = validate_phase(
+                        df, 
+                        current_phase, 
+                        st.session_state['current_phase_temp'],
+                        st.session_state['collected_data'] 
+                    )
+                    
+                    if is_valid:
+                        new_entry = {
+                            "phase_name": current_phase,
+                            "answers": st.session_state['current_phase_temp'].copy()
+                        }
+                        st.session_state['collected_data'].append(new_entry)
+                        
+                        st.success("Phase enregistrée avec succès !")
+                        st.session_state['step'] = 'LOOP_DECISION'
+                        st.rerun()
+                    else:
+                        st.markdown('<div class="error-box"><b>⚠️ Impossible de valider :</b><br>' + 
+                                    '<br>'.join([f"- {e}" for e in errors]) + '</div>', 
+                                    unsafe_allow_html=True)
+            
+        st.markdown('</div>', unsafe_allow_html=True)
+
+# 5. FIN
+elif st.session_state['step'] == 'FINISHED':
+    st.balloons()
+    st.markdown('<div class="phase-block" style="text-align:center;">', unsafe_allow_html=True)
+    st.markdown("## 🎉 Formulaire Terminé")
+    st.write(f"Projet : **{st.session_state['project_data'].get('Intitulé')}**")
+    st.write(f"Nombre total de sections complétées : **{len(st.session_state['collected_data'])}**")
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    for i, phase in enumerate(st.session_state['collected_data']):
+        with st.expander(f"Section {i+1} : {phase['phase_name']}"):
+            st.json(phase['answers'])
+            
+    if st.button("🔄 Commencer un nouveau projet"):
+        st.session_state.clear()
+        st.rerun()
