@@ -3,24 +3,42 @@ import pandas as pd
 import uuid
 
 # --- CONFIGURATION ET STYLE ---
-st.set_page_config(page_title="Formulaire Dynamique - Mode Boucle V4", layout="centered")
+st.set_page_config(page_title="Formulaire Dynamique - Esthétique Simple", layout="centered")
 
 # ⚠️ NOMS DES SECTIONS À EXCLURE GLOBALEMENT
-# Si la section de sélection de phase dans votre Excel s'appelle par exemple "Phase de choix", modifiez la variable ci-dessous.
 EXCLUDED_PHASE_SELECTION_NAME = "phase" 
 
 st.markdown("""
 <style>
+    /* Général */
     .stApp { background-color: #121212; color: #e0e0e0; } 
-    .main-header { background-color: #1e1e1e; padding: 20px; border-radius: 10px; margin-bottom: 20px; text-align: center; border-bottom: 3px solid #4285F4; }
     .block-container { max-width: 800px; }
     
-    /* Styles des blocs */
-    .phase-block { background-color: #1e1e1e; padding: 25px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #333; }
-    .question-card { background-color: #262626; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #4285F4; }
+    /* En-tête principal (Maintenant une simple ligne, le "main-header" est supprimé) */
+    h1 { color: #ffffff !important; border-bottom: 2px solid #4285F4; padding-bottom: 10px; margin-bottom: 20px; text-align: center;}
+    
+    /* Styles des blocs de phase (conservés) */
+    .phase-block { 
+        background-color: #1e1e1e; 
+        padding: 25px; 
+        border-radius: 12px; 
+        margin-bottom: 20px; 
+        border: 1px solid #333; 
+    }
+    
+    /* MODIFICATION CLÉ : Styles des questions */
+    /* Suppression du background-color et du padding excessif pour un affichage direct sur le fond */
+    .question-card { 
+        background-color: transparent !important; /* Rendre transparent */
+        padding: 10px 0; /* Réduire le padding */
+        border-radius: 0;
+        margin-bottom: 15px; 
+        border-left: 4px solid #4285F4; /* Conserver la ligne bleue */
+        padding-left: 15px; /* Ajouter un espace à gauche de la ligne */
+    }
     
     /* Textes */
-    h1, h2, h3 { color: #ffffff !important; }
+    h2, h3 { color: #ffffff !important; }
     .description { font-size: 0.9em; color: #aaaaaa; font-style: italic; margin-bottom: 10px; }
     .mandatory { color: #F4B400; font-weight: bold; margin-left: 5px; }
     
@@ -136,7 +154,7 @@ def validate_section(df_questions, section_name, answers, collected_data):
 validate_phase = validate_section 
 validate_identification = validate_section 
 
-# --- COMPOSANTS UI (Aucun changement) ---
+# --- COMPOSANTS UI (MODIFIÉ) ---
 
 def render_question(row, answers, key_suffix):
     """Affiche un widget pour une question donnée."""
@@ -153,32 +171,35 @@ def render_question(row, answers, key_suffix):
     current_val = answers.get(q_id)
     val = current_val
 
-    
+    # J'utilise le div "question-card" mais avec un style CSS modifié (transparent)
+    st.markdown(f'<div class="question-card"><div>{label_html}</div>', unsafe_allow_html=True)
     if q_desc:
         st.markdown(f'<div class="description">{q_desc}</div>', unsafe_allow_html=True)
-
-    if q_type == 'text':
-        val = st.text_input("Réponse", value=current_val if current_val else "", key=widget_key, label_visibility="collapsed")
     
-    elif q_type == 'select':
-        clean_opts = [opt.strip() for opt in q_options]
-        if "" not in clean_opts: clean_opts.insert(0, "")
+    # Correction : Le widget doit être placé après le div, pour ne pas casser la mise en page
+    with st.container():
+        if q_type == 'text':
+            val = st.text_input("Réponse", value=current_val if current_val else "", key=widget_key, label_visibility="collapsed")
         
-        idx = 0
-        if current_val in clean_opts:
-            idx = clean_opts.index(current_val)
-        val = st.selectbox("Sélection", clean_opts, index=idx, key=widget_key, label_visibility="collapsed")
-        
-    elif q_type == 'number':
-        default_val = float(current_val) if current_val else 0.0
-        val = st.number_input("Nombre", value=default_val, key=widget_key, label_visibility="collapsed")
-        
-    elif q_type == 'photo':
-        val = st.file_uploader("Image", type=['png', 'jpg', 'jpeg'], key=widget_key, label_visibility="collapsed")
-        if val:
-            st.success(f"Image chargée : {val.name}")
-        elif current_val:
-            st.info("Image conservée de la session précédente.")
+        elif q_type == 'select':
+            clean_opts = [opt.strip() for opt in q_options]
+            if "" not in clean_opts: clean_opts.insert(0, "")
+            
+            idx = 0
+            if current_val in clean_opts:
+                idx = clean_opts.index(current_val)
+            val = st.selectbox("Sélection", clean_opts, index=idx, key=widget_key, label_visibility="collapsed")
+            
+        elif q_type == 'number':
+            default_val = float(current_val) if current_val else 0.0
+            val = st.number_input("Nombre", value=default_val, key=widget_key, label_visibility="collapsed")
+            
+        elif q_type == 'photo':
+            val = st.file_uploader("Image", type=['png', 'jpg', 'jpeg'], key=widget_key, label_visibility="collapsed")
+            if val:
+                st.success(f"Image chargée : {val.name}")
+            elif current_val:
+                st.info("Image conservée de la session précédente.")
 
     st.markdown('</div>', unsafe_allow_html=True)
     
@@ -187,7 +208,8 @@ def render_question(row, answers, key_suffix):
 
 # --- MAIN APP FLOW ---
 
-st.markdown('<div class="main-header"><h1>📝 Audit & Formulaire Dynamique</h1></div>', unsafe_allow_html=True)
+# En-tête principal, maintenant sans le bloc 'main-header' indésirable
+st.markdown('<h1>📝 Audit & Formulaire Dynamique</h1>', unsafe_allow_html=True)
 df = st.session_state.get('df_struct')
 
 # 1. CHARGEMENT
@@ -231,7 +253,6 @@ elif st.session_state['step'] == 'PROJECT':
 elif st.session_state['step'] == 'IDENTIFICATION':
     df = st.session_state['df_struct']
     
-    # Récupération du nom de la première section (Identification)
     ID_SECTION_NAME = df['section'].iloc[0] 
     
     st.markdown(f'<div class="phase-block">', unsafe_allow_html=True)
@@ -313,10 +334,8 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
         
         st.markdown(f'<div class="phase-block">', unsafe_allow_html=True)
         
-        # Récupération du nom de la section d'identification (première section stockée)
         ID_SECTION_NAME = st.session_state['collected_data'][0]['phase_name'] if st.session_state['collected_data'] else df['section'].iloc[0]
         
-        # Filtre les phases disponibles (Exclut l'ID et la phase de sélection EXPLICITEMENT)
         all_sections = df['section'].unique().tolist()
         available_phases = [
             sec for sec in all_sections 
@@ -357,7 +376,6 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
 
             st.markdown("---")
             
-            # BOUTONS D'ACTION
             c1, c2 = st.columns([1, 2])
             with c1:
                 if st.button("❌ Annuler cette phase"):
