@@ -32,7 +32,8 @@ st.markdown("""
     .description {
         font-size: 0.85em;
         color: #aaaaaa;
-        margin-top: -10px;
+        /* Règle l'espacement pour être juste sous le label mais au-dessus de l'input */
+        margin-top: -10px; 
         margin-bottom: 10px;
         font-style: italic;
     }
@@ -203,7 +204,7 @@ def validate_mandatory_questions(section_df, answers):
     return len(missing) == 0, missing
 
 def render_field(row):
-    """Génère le widget Streamlit approprié selon le type."""
+    """Génère le widget Streamlit approprié selon le type. Modifié pour afficher la description avant le champ."""
     q_id = int(row['id'])
     q_text = row['question']
     q_type = str(row['type']).strip().lower()
@@ -211,16 +212,20 @@ def render_field(row):
     q_mandatory = str(row['obligatoire']).lower() == 'oui'
     q_options = str(row['options']).split(',') if row['options'] else []
     
+    # Le label inclut le numéro et le marqueur obligatoire
     label = f"{q_id}. {q_text}" + (" *" if q_mandatory else "")
     widget_key = f"q_{q_id}" 
     current_val = st.session_state['form_answers'].get(q_id)
 
     with st.container():
+        st.markdown('<div class="question-block">', unsafe_allow_html=True) # Début du bloc Question
+        
+        # --- AFFICHAGE DE LA DESCRIPTION (Au-dessus du champ) ---
+        if q_desc:
+            st.markdown(f'<p class="description">{q_desc}</p>', unsafe_allow_html=True)
+            
         if q_type == 'text':
             val = st.text_input(label, value=current_val if current_val else "", key=widget_key)
-            # Afficher la description immédiatement après le champ
-            if q_desc:
-                st.markdown(f'<p class="description">{q_desc}</p>', unsafe_allow_html=True)
             
         elif q_type == 'select':
             index = 0
@@ -232,28 +237,22 @@ def render_field(row):
                 index = clean_options.index(current_val)
                 
             val = st.selectbox(label, clean_options, index=index, key=widget_key)
-            # Afficher la description immédiatement après le champ
-            if q_desc:
-                st.markdown(f'<p class="description">{q_desc}</p>', unsafe_allow_html=True)
             
         elif q_type == 'number':
+            # Assure que le label est affiché correctement
             val = st.number_input(label, value=int(current_val) if current_val else 0, key=widget_key)
-            # Afficher la description immédiatement après le champ
-            if q_desc:
-                st.markdown(f'<p class="description">{q_desc}</p>', unsafe_allow_html=True)
             
         elif q_type == 'photo':
             val = st.file_uploader(label, type=['png', 'jpg', 'jpeg'], key=widget_key)
             if val is not None:
                 st.success(f"Image chargée : {val.name}")
             elif current_val is not None:
-                st.info("Image déjà chargée précédemment.")
-            # Afficher la description immédiatement après le champ
-            if q_desc:
-                st.markdown(f'<p class="description">{q_desc}</p>', unsafe_allow_html=True)
-            
-        st.markdown('</div>', unsafe_allow_html=True)
-
+                # Si l'utilisateur n'a pas chargé un nouveau fichier mais qu'une réponse existe déjà
+                st.info("Image déjà chargée précédemment.") 
+        
+        st.markdown('</div>', unsafe_allow_html=True) # Fin du bloc Question
+        
+        # Enregistrement de la réponse
         if val is not None:
             st.session_state['form_answers'][q_id] = val
 
@@ -325,6 +324,9 @@ if uploaded_file is not None:
                         st.session_state['selected_project'] = selected
                         st.session_state['project_data'] = project_info
                         st.rerun()
+                else:
+                    st.info("Veuillez choisir un projet pour continuer.")
+
             else:
                 st.error("La colonne 'Intitulé' n'a pas été trouvée dans la feuille 'site'.")
             
@@ -361,7 +363,11 @@ if uploaded_file is not None:
             
             # Si aucune section n'est visible, afficher la première par défaut
             if not visible_sections:
-                visible_sections = [all_sections[0]]
+                if all_sections:
+                     visible_sections = [all_sections[0]]
+                else:
+                     st.warning("Le fichier Excel ne contient aucune section de question.")
+                     st.stop()
             
             # Sécurité index
             if st.session_state['current_section_index'] >= len(visible_sections):
@@ -372,7 +378,7 @@ if uploaded_file is not None:
             # Barre de progression
             progress = (st.session_state['current_section_index'] + 1) / len(visible_sections)
             st.progress(progress)
-            st.caption(f"Section {st.session_state['current_section_index'] + 1}/{len(visible_sections)} : {current_section_name}")
+            st.caption(f"Section {st.session_state['current_section_index'] + 1}/{len(visible_sections)} : **{current_section_name}**")
 
             # --- AFFICHAGE DU FORMULAIRE POUR LA SECTION COURANTE ---
             st.markdown(f"## {current_section_name}")
@@ -420,16 +426,20 @@ if uploaded_file is not None:
                     # Bouton "Soumettre" avec validation
                     if st.button("✅ Soumettre le rapport"):
                         if is_valid:
-                            st.success("✅ Formulaire terminé avec succès !")
+                            st.success("✅ Formulaire terminé avec succès et prêt à être soumis !")
                             st.write("**Projet :**", st.session_state['selected_project'])
-                            st.write("**Informations du projet :**")
-                            st.json(st.session_state['project_data'])
                             st.write("**Récapitulatif des réponses :**")
                             display_data = {k: str(v) for k, v in st.session_state['form_answers'].items()}
                             st.json(display_data)
+                            st.info("Vous pouvez maintenant traiter ces données (enregistrement en base de données, exportation Excel, etc.)")
+
                         else:
                             st.markdown('<div class="validation-error">', unsafe_allow_html=True)
                             st.error("⚠️ Veuillez répondre à toutes les questions obligatoires (*) avant de soumettre :")
                             for missing in missing_questions:
                                 st.write(f"• {missing}")
                             st.markdown('</div>', unsafe_allow_html=True)
+
+---
+
+Avez-vous besoin d'aide pour la partie exportation ou traitement des données après la soumission du formulaire ?
