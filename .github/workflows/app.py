@@ -339,26 +339,6 @@ if uploaded_file is not None:
                 st.rerun()
             
             st.markdown('</div>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
-        
-        else:
-            # --- AFFICHAGE DU FORMULAIRE (projet déjà sélectionné) ---
-            
-            # Afficher le projet sélectionné en haut
-            st.markdown('<div class="form-container">', unsafe_allow_html=True)
-            st.markdown(f"### 🏗️ Projet : {st.session_state['selected_project']}")
-            
-            with st.expander("📊 Voir les informations du projet"):
-                for key, value in st.session_state['project_data'].items():
-                    st.write(f"**{key}:** {value}")
-            
-            if st.button("🔄 Changer de projet"):
-                st.session_state['selected_project'] = None
-                st.session_state['current_section_index'] = 0
-                st.session_state['form_answers'] = {}
-                st.rerun()
-            
-            st.markdown('</div>', unsafe_allow_html=True)
             
             # Récupération de toutes les sections
             all_sections = df['section'].unique().tolist()
