@@ -13,7 +13,8 @@ st.markdown("""
     
     /* Styles des blocs */
     .phase-block { background-color: #1e1e1e; padding: 25px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #333; }
-    .question-card { background-color: #262626; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #4285F4; }
+    /* MODIFICATION ICI : background-color: transparent pour supprimer le fond du bloc question */
+    .question-card { background-color: transparent; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #4285F4; }
     
     /* Textes */
     h1, h2, h3 { color: #ffffff !important; }
