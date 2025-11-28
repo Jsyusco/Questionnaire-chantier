@@ -222,7 +222,7 @@ def render_field(row):
     val = None
 
     with st.container():
-        st.markdown('<div class="question-block">', unsafe_allow_html=True) # Début du bloc Question
+        
         
         # Affichage manuel de la Question (en haut)
         st.markdown(f"**{display_question}**", unsafe_allow_html=True)
