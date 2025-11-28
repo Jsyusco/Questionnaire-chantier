@@ -321,11 +321,19 @@ if uploaded_file is not None:
         visible_sections = get_visible_sections(df, st.session_state['form_answers'])
         
         # Sécurité de l'index : Assure que l'index reste dans les limites de la liste visible
+       # Sécurité de l'index : Assure que l'index reste dans les limites de la nouvelle liste
         if not visible_sections:
             st.warning("Aucune section visible.")
-            return
+            # On utilise 'pass' ou on laisse le bloc se terminer sans return
+            # Le reste du code ci-dessous ne sera pas exécuté s'il n'y a pas de sections visibles
+            # (Ce qui est géré plus bas)
+            pass 
             
         if st.session_state['current_section_index'] >= len(visible_sections):
+            # Rediriger vers la fin (bouton Soumettre)
+            st.session_state['current_section_index'] = len(visible_sections) - 1
+        if st.session_state['current_section_index'] < 0:
+            st.session_state['current_section_index'] = 0
              st.session_state['current_section_index'] = len(visible_sections) - 1
         if st.session_state['current_section_index'] < 0:
              st.session_state['current_section_index'] = 0
