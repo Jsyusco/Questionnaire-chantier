@@ -102,4 +102,183 @@ def check_condition(row, current_answers, collected_data):
             return True
             
         if '=' in condition_rule:
-            target_id_str, target_value = condition_rule.split('=', 1
+            target_id_str, target_value = condition_rule.split('=', 1)
+            target_id = int(target_id_str.strip())
+            target_value = target_value.strip()
+            
+            user_answer = combined_answers.get(target_id)
+            return str(user_answer) == str(target_value)
+        return True
+    except:
+        return True
+
+def validate_section(df_questions, section_name, answers, collected_data):
+    """
+    Valide si toutes les questions obligatoires d'une section ont une réponse.
+    Utilise l'historique pour évaluer les conditions d'affichage.
+    """
+    missing = []
+    section_rows = df_questions[df_questions['section'] == section_name]
+    
+    for _, row in section_rows.iterrows():
+        # IMPORTANT : Utilise check_condition avec l'historique
+        if not check_condition(row, answers, collected_data):
+            continue
+            
+        is_mandatory = str(row['obligatoire']).strip().lower() == 'oui'
+        if is_mandatory:
+            q_id = int(row['id'])
+            # Vérifie la réponse dans le dictionnaire *courant*
+            val = answers.get(q_id)
+            if val is None or val == "" or (isinstance(val, (int, float)) and val == 0):
+                missing.append(f"Question {q_id} : {row['question']}")
+                
+    return len(missing) == 0, missing
+
+# Renomme la fonction pour être plus générale
+validate_phase = validate_section 
+# Renomme la fonction pour être plus générale et plus claire dans le contexte d'identification
+validate_identification = validate_section 
+
+# --- COMPOSANTS UI (Aucun changement) ---
+
+def render_question(row, answers, key_suffix):
+    """Affiche un widget pour une question donnée."""
+    q_id = int(row['id'])
+    q_text = row['question']
+    q_type = str(row['type']).strip().lower()
+    q_desc = row['Description']
+    q_mandatory = str(row['obligatoire']).lower() == 'oui'
+    q_options = str(row['options']).split(',') if row['options'] else []
+    
+    label_html = f"<strong>{q_id}. {q_text}</strong>" + (' <span class="mandatory">*</span>' if q_mandatory else "")
+    widget_key = f"q_{q_id}_{key_suffix}"
+    
+    current_val = answers.get(q_id)
+    val = current_val
+
+    st.markdown(f'<div class="question-card"><div>{label_html}</div>', unsafe_allow_html=True)
+    if q_desc:
+        st.markdown(f'<div class="description">{q_desc}</div>', unsafe_allow_html=True)
+
+    if q_type == 'text':
+        val = st.text_input("Réponse", value=current_val if current_val else "", key=widget_key, label_visibility="collapsed")
+    
+    elif q_type == 'select':
+        clean_opts = [opt.strip() for opt in q_options]
+        if "" not in clean_opts: clean_opts.insert(0, "")
+        
+        idx = 0
+        if current_val in clean_opts:
+            idx = clean_opts.index(current_val)
+        val = st.selectbox("Sélection", clean_opts, index=idx, key=widget_key, label_visibility="collapsed")
+        
+    elif q_type == 'number':
+        default_val = float(current_val) if current_val else 0.0
+        val = st.number_input("Nombre", value=default_val, key=widget_key, label_visibility="collapsed")
+        
+    elif q_type == 'photo':
+        val = st.file_uploader("Image", type=['png', 'jpg', 'jpeg'], key=widget_key, label_visibility="collapsed")
+        if val:
+            st.success(f"Image chargée : {val.name}")
+        elif current_val:
+            st.info("Image conservée de la session précédente.")
+
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    if val is not None:
+        answers[q_id] = val
+
+# --- MAIN APP FLOW ---
+
+st.markdown('<div class="main-header"><h1>📝 Audit & Formulaire Dynamique</h1></div>', unsafe_allow_html=True)
+df = st.session_state.get('df_struct')
+
+# 1. CHARGEMENT
+if st.session_state['step'] == 'UPLOAD':
+    uploaded_file = st.file_uploader("📂 Chargez le fichier de configuration (Excel)", type=["xlsx"])
+    if uploaded_file:
+        df_struct = load_form_structure(uploaded_file)
+        df_site = load_site_data(uploaded_file)
+        
+        if df_struct is not None and df_site is not None:
+            st.session_state['df_struct'] = df_struct
+            st.session_state['df_site'] = df_site
+            st.session_state['step'] = 'PROJECT'
+            st.rerun()
+
+# 2. SÉLECTION PROJET
+elif st.session_state['step'] == 'PROJECT':
+    # ... (code de sélection de projet inchangé)
+    df_site = st.session_state['df_site']
+    st.markdown("### 🏗️ Sélection du Chantier")
+    
+    if 'Intitulé' not in df_site.columns:
+        st.error("Colonne 'Intitulé' manquante dans la feuille 'Site'. Impossible de continuer.")
+        st.session_state['step'] = 'UPLOAD'
+        st.rerun()
+        
+    projects = [""] + df_site['Intitulé'].dropna().unique().tolist()
+    selected_proj = st.selectbox("Rechercher un projet", projects)
+    
+    if selected_proj:
+        row = df_site[df_site['Intitulé'] == selected_proj].iloc[0]
+        st.info(f"Projet sélectionné : {selected_proj} (Code: {row.get('Code Site', 'N/A')})")
+        
+        if st.button("✅ Démarrer l'identification"):
+            st.session_state['project_data'] = row.to_dict()
+            st.session_state['step'] = 'IDENTIFICATION'
+            # Prépare les données temporaires pour l'identification
+            st.session_state['current_phase_temp'] = {}
+            st.session_state['iteration_id'] = str(uuid.uuid4())
+            st.rerun()
+
+# 3. IDENTIFICATION (Nouvelle étape, hors boucle)
+elif st.session_state['step'] == 'IDENTIFICATION':
+    df = st.session_state['df_struct']
+    
+    # ⚠️ Assurez-vous que le nom de la section d'identification est cohérent dans votre Excel
+    ID_SECTION_NAME = df['section'].iloc[0] # Suppose que la première section est l'identification
+    
+    st.markdown(f'<div class="phase-block">', unsafe_allow_html=True)
+    st.markdown(f"### 👤 Étape unique : {ID_SECTION_NAME}")
+    st.info("Veuillez renseigner les informations d'identification une seule fois pour ce projet.")
+
+    identification_questions = df[df['section'] == ID_SECTION_NAME]
+    
+    visible_count = 0
+    for _, row in identification_questions.iterrows():
+        # L'identification n'a besoin que de ses réponses courantes pour check_condition (car c'est le début)
+        if check_condition(row, st.session_state['current_phase_temp'], st.session_state['collected_data']): 
+            render_question(row, st.session_state['current_phase_temp'], st.session_state['iteration_id'])
+            visible_count += 1
+
+    st.markdown("---")
+    
+    if st.button("✅ Valider l'identification et passer aux phases"):
+        is_valid, errors = validate_identification(
+            df, 
+            ID_SECTION_NAME, 
+            st.session_state['current_phase_temp'], 
+            st.session_state['collected_data'] 
+        )
+        
+        if is_valid:
+            # Stocke l'identification comme première entrée dans l'historique
+            id_entry = {
+                "phase_name": ID_SECTION_NAME,
+                "answers": st.session_state['current_phase_temp'].copy()
+            }
+            st.session_state['collected_data'].append(id_entry)
+            st.session_state['identification_completed'] = True
+            
+            # Passe directement à la boucle
+            st.session_state['step'] = 'LOOP_DECISION'
+            st.session_state['current_phase_temp'] = {} # Nettoie le tampon
+            st.success("Identification validée. Passage au mode boucle.")
+            st.rerun()
+        else:
+            st.markdown('<div class="error-box"><b>⚠️ Erreur de validation :</b><br>' + 
+                        '<br>'.join([f"- {e}" for e in errors]) + '</div>', 
+                        unsafe_allow_html=True)
+    st
