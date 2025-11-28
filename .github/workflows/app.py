@@ -1,116 +1,236 @@
 import streamlit as st
 import pandas as pd
 
-# --- MAPPAGE DES COLONNES ---
-# Clé = Nom exact de la colonne dans le fichier Excel (à vérifier !)
-# Valeur = Nom descriptif que l'utilisateur verra à l'écran
-COLUMN_MAPPING = {
-    'L [Plan de Déploiement]': 'Bornes Lentes',
-    'R [Plan de Déploiement]': 'Bornes Rapides',
-    'UR [Plan de Déploiement]': 'Bornes Ultra-rapides',
-    'Pré L [Plan de Déploiement]': 'Pré-équipement Bornes Lentes',
-    'Pré R [Plan de Déploiement]': 'Pré-équipement Bornes Rapides',
-    'Pré UR [Plan de Déploiement]': 'Pré-équipement Bornes Ultra-rapides',
-    'Fournisseur Bornes AC [Bornes]': 'Fournisseur Bornes AC',
-    'Fournisseur Bornes DC [Bornes]': 'Fournisseur Bornes DC',
-}
-
 # --- CONFIGURATION ET STYLE ---
-st.set_page_config(page_title="Visualisation Projets Mappée", layout="centered")
+st.set_page_config(page_title="Formulaire Dynamique", layout="centered")
 
 st.markdown("""
     <style>
-    .stApp { background-color: #121212; }
+    .stApp { background-color: #f0f2f6; }
     .form-container {
-        background-color: #1e1e1e;
+        background-color: #ffffff;
         padding: 30px;
         border-radius: 12px;
-        border-top: 8px solid #ffffff; 
-        box-shadow: 0 4px 6px rgba(0,0,0,0.5);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         margin-bottom: 20px;
-        color: white;
     }
-    .condensed-block {
-        background-color: #2d2d2d;
-        padding: 20px;
-        border-radius: 8px;
-        border: 1px solid #404040;
-        margin-bottom: 15px;
-        color: #e0e0e0;
-        line-height: 1.6;
-        white-space: pre-wrap;
+    .question-block {
+        margin-bottom: 20px;
+        padding: 15px;
+        border-left: 4px solid #4CAF50;
+        background-color: #fafafa;
     }
-    h1, h2 { color: #ffffff; }
-    #MainMenu, footer { visibility: hidden; }
-    .stButton > button { background-color: #ffffff; color: #121212; border: none; font-weight: bold; }
-    .stButton > button:hover { background-color: #e0e0e0; color: #000000; }
+    .description {
+        font-size: 0.85em;
+        color: #666;
+        margin-top: -10px;
+        margin-bottom: 10px;
+        font-style: italic;
+    }
+    .mandatory {
+        color: red;
+        font-weight: bold;
+    }
+    h1, h2, h3 { color: #1e1e1e; }
+    .stButton > button { width: 100%; border-radius: 5px; }
     </style>
 """, unsafe_allow_html=True)
 
 # --- CHARGEMENT DES DONNÉES ---
 @st.cache_data
-def load_data(file):
-    """Charge et prépare les données du fichier Excel."""
+def load_form_structure(file):
     try:
-        df = pd.read_excel(file, sheet_name='Site', engine='openpyxl')
-        df = df.fillna("-") 
-        df = df.astype(str)
+        # On lit la feuille 'Questions' spécifiquement
+        df = pd.read_excel(file, sheet_name='Questions', engine='openpyxl')
+        
+        # Nettoyage des noms de colonnes (suppression des espaces vides autour)
+        df.columns = df.columns.str.strip()
+        
+        # On remplit les valeurs vides pour éviter les erreurs NaN
+        df['options'] = df['options'].fillna('')
+        df['Description'] = df['Description'].fillna('')
+        df['Condition value'] = df['Condition value'].fillna('')
+        df['Condition on'] = df['Condition on'].fillna(0)
+        
         return df
     except Exception as e:
-        st.error(f"Erreur lors de la lecture du fichier : {e}")
+        st.error(f"Erreur lors de la lecture de l'onglet 'Questions' : {e}")
         return None
 
-# --- INTERFACE UTILISATEUR PRINCIPALE ---
+# --- GESTION DE L'ÉTAT (SESSION STATE) ---
+if 'form_answers' not in st.session_state:
+    st.session_state['form_answers'] = {} # Stocke les réponses : {id_question: valeur}
 
-st.markdown('<div class="form-container"><h1>Suivi de Déploiement</h1><p>Veuillez charger votre fichier et sélectionner un site.</p></div>', unsafe_allow_html=True)
+if 'current_section_index' not in st.session_state:
+    st.session_state['current_section_index'] = 0
 
-uploaded_file = st.file_uploader("Chargez votre fichier Excel", type=["xlsx"])
+# --- FONCTIONS LOGIQUES ---
+
+def check_condition(row, answers):
+    """
+    Vérifie si une question doit être affichée en fonction des réponses précédentes.
+    Structure attendue dans 'Condition value': "ID_QUESTION = VALEUR"
+    Exemple: "4 = Sécurité"
+    """
+    # Si la colonne 'Condition on' ne contient pas 1 (ou est vide), pas de condition
+    try:
+        is_conditional = int(row['Condition on']) == 1
+    except:
+        is_conditional = False
+
+    if not is_conditional:
+        return True
+
+    condition_rule = str(row['Condition value']).strip()
+    if not condition_rule:
+        return True # Si condition active mais pas de règle, on affiche par défaut
+    
+    try:
+        # Parsing basique de la règle "ID = VALEUR"
+        if '=' in condition_rule:
+            target_id_str, target_value = condition_rule.split('=', 1)
+            target_id = int(target_id_str.strip())
+            target_value = target_value.strip()
+            
+            # Récupération de la réponse actuelle de l'utilisateur pour la question cible
+            user_answer = answers.get(target_id)
+            
+            # Comparaison (en string pour éviter les soucis de type)
+            return str(user_answer) == str(target_value)
+        else:
+            return True 
+    except Exception as e:
+        # En cas d'erreur de parsing, on affiche pour ne pas bloquer
+        return True
+
+def render_field(row):
+    """Génère le widget Streamlit approprié selon le type."""
+    q_id = int(row['id'])
+    q_text = row['question']
+    q_type = str(row['type']).strip().lower()
+    q_desc = row['Description']
+    q_mandatory = str(row['obligatoire']).lower() == 'oui'
+    q_options = str(row['options']).split(',') if row['options'] else []
+    
+    # Label avec astérisque si obligatoire
+    label = f"{q_id}. {q_text}" + (" *" if q_mandatory else "")
+    
+    # Clé unique pour le widget
+    widget_key = f"q_{q_id}" 
+    
+    # Récupération de la valeur existante ou None
+    current_val = st.session_state['form_answers'].get(q_id)
+
+    with st.container():
+        st.markdown(f'<div class="question-block">', unsafe_allow_html=True)
+        
+        val = None
+        
+        if q_type == 'text':
+            val = st.text_input(label, value=current_val if current_val else "", key=widget_key)
+            
+        elif q_type == 'select':
+            # Gestion de l'index pour la valeur par défaut
+            index = 0
+            clean_options = [opt.strip() for opt in q_options]
+            # Ajouter une option vide au début pour forcer un choix conscient
+            if "" not in clean_options:
+                clean_options.insert(0, "")
+                
+            if current_val in clean_options:
+                index = clean_options.index(current_val)
+                
+            val = st.selectbox(label, clean_options, index=index, key=widget_key)
+            
+        elif q_type == 'number':
+            val = st.number_input(label, value=int(current_val) if current_val else 0, key=widget_key)
+            
+        elif q_type == 'photo':
+            val = st.file_uploader(label, type=['png', 'jpg', 'jpeg'], key=widget_key)
+            # Pour les fichiers, on stocke l'objet ou un indicateur
+            if val is not None:
+                st.success(f"Image chargée : {val.name}")
+            elif current_val is not None:
+                 st.info("Image déjà chargée précédemment.")
+
+        # Affichage de la description
+        if q_desc:
+            st.markdown(f'<p class="description">{q_desc}</p>', unsafe_allow_html=True)
+            
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # Mise à jour immédiate de la réponse dans le dictionnaire principal
+        # Note : Pour les selectbox/text, la mise à jour est auto via session_state[key], 
+        # mais on synchronise ici notre dictionnaire 'form_answers' pour un accès plus facile par ID
+        if val is not None:
+            st.session_state['form_answers'][q_id] = val
+
+
+# --- NAVIGATION ET VALIDATION ---
+def next_section():
+    st.session_state['current_section_index'] += 1
+
+def prev_section():
+    st.session_state['current_section_index'] -= 1
+
+# --- MAIN APP ---
+
+st.markdown('<div class="form-container"><h1>📝 Formulaire de Travaux</h1></div>', unsafe_allow_html=True)
+
+uploaded_file = st.file_uploader("Chargez le fichier Excel de structure (Questions)", type=["xlsx"])
 
 if uploaded_file is not None:
-    df = load_data(uploaded_file)
+    df = load_form_structure(uploaded_file)
     
-    if df is not None and not df.empty:
-        col_intitule = df.columns[0]
+    if df is not None:
+        # Récupération des sections uniques dans l'ordre
+        sections = df['section'].unique().tolist()
         
-        # 1. SÉLECTION DU PROJET
-        with st.container():
-            st.subheader("Sélection du Site")
-            
-            options = df[col_intitule].unique().tolist()
-            selected_project = st.selectbox("Site à consulter :", options)
-
-
-        # 2. AFFICHAGE CONDENSÉ AVEC MAPPAGE
-        st.markdown(f'<div class="form-container"><h2>Détails du projet : {selected_project}</h2></div>', unsafe_allow_html=True)
-
-        project_data = df[df[col_intitule] == selected_project].iloc[0]
+        # Sécurité index
+        if st.session_state['current_section_index'] >= len(sections):
+             st.session_state['current_section_index'] = len(sections) - 1
         
-        # Construction du contenu condensé
-        condensed_content = ""
+        current_section_name = sections[st.session_state['current_section_index']]
         
-        # On itère sur le dictionnaire de mappage (les clés sont les noms des colonnes Excel)
-        for excel_col_name, display_label in COLUMN_MAPPING.items():
-            
-            # Vérifier que la colonne existe dans le DataFrame chargé
-            if excel_col_name in project_data:
-                valeur = project_data[excel_col_name]
-                
-                # Format d'affichage : Nom Lisible en gras : Valeur
-                condensed_content += f"**{display_label}** : {valeur} \n" 
+        # Barre de progression
+        progress = (st.session_state['current_section_index'] + 1) / len(sections)
+        st.progress(progress)
+        st.caption(f"Section {st.session_state['current_section_index'] + 1}/{len(sections)} : {current_section_name}")
+
+        # --- AFFICHAGE DU FORMULAIRE POUR LA SECTION COURANTE ---
+        st.markdown(f"## {current_section_name}")
+        
+        # Filtrer les questions de la section
+        section_questions = df[df['section'] == current_section_name]
+        
+        visible_questions_count = 0
+        
+        for index, row in section_questions.iterrows():
+            # Vérification Conditionnelle
+            if check_condition(row, st.session_state['form_answers']):
+                render_field(row)
+                visible_questions_count += 1
+        
+        if visible_questions_count == 0:
+            st.info("Aucune question visible pour cette section selon vos choix précédents.")
+
+        # --- BOUTONS DE NAVIGATION ---
+        col1, col2, col3 = st.columns([1, 2, 1])
+        
+        with col1:
+            if st.session_state['current_section_index'] > 0:
+                st.button("⬅️ Précédent", on_click=prev_section)
+        
+        with col3:
+            if st.session_state['current_section_index'] < len(sections) - 1:
+                st.button("Suivant ➡️", on_click=next_section)
             else:
-                # Ajouter une ligne d'erreur si la colonne est manquante
-                 condensed_content += f"**{display_label}** : Colonne Excel '{excel_col_name}' introuvable. \n"
-
-        # Affichage dans un grand bloc unique
-        st.markdown(f"""<div class="condensed-block">{condensed_content} """, unsafe_allow_html=True)        
-       
-
-    elif df is not None and df.empty:
-        st.error("Le fichier Excel chargé est vide ou la feuille 'Site' est vide.")
+                if st.button("✅ Soumettre le rapport"):
+                    st.success("Formulaire terminé !")
+                    st.write("Récapitulatif des données collectées (JSON):")
+                    # Nettoyage pour affichage (exclure les objets fichiers bruts pour l'affichage JSON)
+                    display_data = {k: str(v) for k, v in st.session_state['form_answers'].items()}
+                    st.json(display_data)
 
 else:
-    st.markdown("""
-    <div style='text-align: center; color: #666; margin-top: 50px;'>
-        En attente du fichier Excel...
-    </div>
-    """, unsafe_allow_html=True)
+    st.info("Veuillez charger le fichier Excel contenant l'onglet 'Questions'.")
