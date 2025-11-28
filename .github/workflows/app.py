@@ -34,7 +34,7 @@ st.markdown("""
 @st.cache_data
 def load_form_structure(file):
     try:
-        df = pd.read_excel(file, sheet_name='Questions', engine='openpyxl')
+        df = pd.read_excel(file, sheet_name='Questions', engine='openpyxl')
         df.columns = df.columns.str.strip()
         rename_map = {k: 'Condition value' for k in ['Conditon value', 'condition value', 'Condition Value']}
         rename_map.update({k: 'Condition on' for k in ['Conditon on', 'condition on']})
