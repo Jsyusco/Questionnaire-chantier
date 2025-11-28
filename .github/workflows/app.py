@@ -6,33 +6,76 @@ st.set_page_config(page_title="Formulaire Dynamique", layout="centered")
 
 st.markdown("""
     <style>
-    .stApp { background-color: #f0f2f6; }
+    /* Fond de l'application (Noir/Gris très foncé) */
+    .stApp { background-color: #121212; } 
+    
+    /* Conteneur principal du formulaire */
     .form-container {
-        background-color: #ffffff;
+        background-color: #1e1e1e; /* Gris foncé pour le bloc principal */
         padding: 30px;
         border-radius: 12px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5); /* Ombre plus visible sur fond sombre */
         margin-bottom: 20px;
+        color: #e0e0e0; /* Texte clair */
     }
+    
+    /* Bloc de question individuel */
     .question-block {
         margin-bottom: 20px;
         padding: 15px;
-        border-left: 4px solid #4CAF50;
-        background-color: #fafafa;
+        /* Barre d'accentuation Gemini Blue/Cyan */
+        border-left: 4px solid #4285F4; 
+        background-color: #2d2d2d; /* Gris moyen pour distinguer */
+        border-radius: 4px;
     }
+    
+    /* Description/Texte d'aide */
     .description {
         font-size: 0.85em;
-        color: #666;
+        color: #aaaaaa;
         margin-top: -10px;
         margin-bottom: 10px;
         font-style: italic;
     }
+    
+    /* Texte obligatoire */
     .mandatory {
-        color: red;
+        color: #F4B400; /* Jaune/Ambre pour attirer l'attention */
         font-weight: bold;
     }
-    h1, h2, h3 { color: #1e1e1e; }
-    .stButton > button { width: 100%; border-radius: 5px; }
+    
+    /* Titres (h1, h2, h3) */
+    h1, h2, h3 { 
+        color: #ffffff; /* Blanc pur */
+    }
+    
+    /* Boutons de navigation */
+    .stButton > button { 
+        width: 100%; 
+        border-radius: 8px;
+        /* Fond Cyan/Bleu d'accentuation */
+        background-color: #4285F4; 
+        color: white; 
+        border: none;
+        font-weight: bold;
+    }
+    
+    /* Effet au survol des boutons */
+    .stButton > button:hover { 
+        background-color: #5b9ffc;
+        color: white; 
+    }
+    
+    /* Pour Streamlit (barre de progression, inputs) */
+    .stProgress > div > div > div > div {
+        background-color: #4285F4;
+    }
+
+    /* Style pour les inputs/select (moins de contrôle direct en CSS, mais on peut influencer le conteneur) */
+    .stTextInput label, .stSelectbox label, .stNumberInput label {
+        color: #e0e0e0;
+    }
+    
     </style>
 """, unsafe_allow_html=True)
 
