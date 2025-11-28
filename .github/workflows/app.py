@@ -286,7 +286,7 @@ if uploaded_file is not None:
         
         # --- SÉLECTION DU PROJET ---
         if st.session_state['selected_project'] is None:
-            
+            st.markdown('<div class="form-container">', unsafe_allow_html=True)
             st.markdown("### 🏗️ Sélection du Projet")
             
             # Liste des intitulés de projets
