@@ -216,8 +216,7 @@ def get_visible_sections(df, answers):
         section_questions = df[df['section'] == section_name]
         is_visible = False
         
-        # Les premières sections (Identification, Phase) sont toujours visibles.
-        # On suppose que les deux premières sections ne sont pas conditionnelles à elles-mêmes.
+        # Les premières sections sont considérées comme toujours visibles (Identification/Phase)
         if all_sections.index(section_name) < 2: 
             is_visible = True
         else:
@@ -252,13 +251,10 @@ def validate_section(df, current_section_name):
             if answer is None:
                 is_empty = True
             elif isinstance(answer, (str, int, float)):
-                # Gère les chaînes vides, les selectbox à "" et les number input à 0 (si non souhaité, 
-                # il faudrait ajouter une règle pour les numbers)
                 if str(answer).strip() == "":
                     is_empty = True
                 elif row['type'].strip().lower() == 'select' and str(answer).strip() == "":
                     is_empty = True
-                # Pour les number input, on suppose 0 est acceptable sauf indication contraire
             elif row['type'].strip().lower() == 'photo' and answer is None:
                 is_empty = True
 
@@ -320,77 +316,71 @@ if uploaded_file is not None:
         # Liste des sections à afficher (dynamique)
         visible_sections = get_visible_sections(df, st.session_state['form_answers'])
         
-        # Sécurité de l'index : Assure que l'index reste dans les limites de la liste visible
-       # Sécurité de l'index : Assure que l'index reste dans les limites de la nouvelle liste
-        if not visible_sections:
-            st.warning("Aucune section visible.")
-            # On utilise 'pass' ou on laisse le bloc se terminer sans return
-            # Le reste du code ci-dessous ne sera pas exécuté s'il n'y a pas de sections visibles
-            # (Ce qui est géré plus bas)
-            pass 
+        # SÉCURITÉ : Rendu uniquement si des sections sont visibles
+        if visible_sections:
             
-        if st.session_state['current_section_index'] >= len(visible_sections):
-            # Rediriger vers la fin (bouton Soumettre)
-            st.session_state['current_section_index'] = len(visible_sections) - 1
-        if st.session_state['current_section_index'] < 0:
-            st.session_state['current_section_index'] = 0
-             st.session_state['current_section_index'] = len(visible_sections) - 1
-        if st.session_state['current_section_index'] < 0:
-             st.session_state['current_section_index'] = 0
+            # Sécurité de l'index : Assure que l'index reste dans les limites de la liste visible
+            if st.session_state['current_section_index'] >= len(visible_sections):
+                 st.session_state['current_section_index'] = len(visible_sections) - 1
+            if st.session_state['current_section_index'] < 0:
+                 st.session_state['current_section_index'] = 0
 
-        current_section_name = visible_sections[st.session_state['current_section_index']]
-        
-        # Barre de progression
-        progress = (st.session_state['current_section_index'] + 1) / len(visible_sections)
-        st.progress(progress)
-        st.caption(f"Section {st.session_state['current_section_index'] + 1}/{len(visible_sections)} : **{current_section_name}**")
-
-        # --- AFFICHAGE DU FORMULAIRE POUR LA SECTION COURANTE ---
-        st.markdown(f"## {current_section_name}")
-        
-        section_questions = df[df['section'] == current_section_name]
-        
-        visible_questions_count = 0
-        
-        with st.container():
-            for _, row in section_questions.iterrows():
-                # Vérification Conditionnelle : n'affiche que les questions nécessaires
-                if check_condition(row, st.session_state['form_answers']):
-                    render_field(row)
-                    visible_questions_count += 1
-        
-        if visible_questions_count == 0:
-            st.info("Aucune question visible pour cette section selon vos choix précédents. Cliquez sur 'Suivant' pour passer à la prochaine section pertinente.")
-
-        # --- BOUTONS DE NAVIGATION ---
-        col1, col2, col3 = st.columns([1, 2, 1])
-        
-        with col1:
-            if st.session_state['current_section_index'] > 0:
-                st.button("⬅️ Précédent", on_click=lambda: navigate('prev', df))
-        
-        with col3:
-            is_last_section = st.session_state['current_section_index'] == len(visible_sections) - 1
+            current_section_name = visible_sections[st.session_state['current_section_index']]
             
-            if not is_last_section:
-                st.button("Suivant ➡️", on_click=lambda: navigate('next', df))
-            else:
-                if st.button("✅ Soumettre le rapport"):
-                    # Validation finale avant la soumission
-                    if validate_section(df, current_section_name):
-                        st.balloons()
-                        st.success("Formulaire terminé et validé !")
-                        st.write("Récapitulatif des données collectées :")
-                        final_data = {}
-                        for q_id, answer in st.session_state['form_answers'].items():
-                            if answer is not None and str(answer).strip() not in ["", "0"]:
-                                q_row = df[df['id'] == q_id]
-                                if not q_row.empty:
-                                    final_data[f"{q_row.iloc[0]['section']} - {q_row.iloc[0]['question']}"] = str(answer)
-                                else:
-                                    final_data[str(q_id)] = str(answer)
+            # Barre de progression
+            progress = (st.session_state['current_section_index'] + 1) / len(visible_sections)
+            st.progress(progress)
+            st.caption(f"Section {st.session_state['current_section_index'] + 1}/{len(visible_sections)} : **{current_section_name}**")
 
-                        st.json(final_data)
+            # --- AFFICHAGE DU FORMULAIRE POUR LA SECTION COURANTE ---
+            st.markdown(f"## {current_section_name}")
+            
+            section_questions = df[df['section'] == current_section_name]
+            
+            visible_questions_count = 0
+            
+            with st.container():
+                for _, row in section_questions.iterrows():
+                    # Vérification Conditionnelle : n'affiche que les questions nécessaires
+                    if check_condition(row, st.session_state['form_answers']):
+                        render_field(row)
+                        visible_questions_count += 1
+            
+            if visible_questions_count == 0:
+                st.info("Aucune question visible pour cette section selon vos choix précédents. Cliquez sur 'Suivant' pour passer à la prochaine section pertinente.")
+
+            # --- BOUTONS DE NAVIGATION ---
+            col1, col2, col3 = st.columns([1, 2, 1])
+            
+            with col1:
+                if st.session_state['current_section_index'] > 0:
+                    st.button("⬅️ Précédent", on_click=lambda: navigate('prev', df))
+            
+            with col3:
+                is_last_section = st.session_state['current_section_index'] == len(visible_sections) - 1
+                
+                if not is_last_section:
+                    st.button("Suivant ➡️", on_click=lambda: navigate('next', df))
+                else:
+                    if st.button("✅ Soumettre le rapport"):
+                        # Validation finale avant la soumission
+                        if validate_section(df, current_section_name):
+                            st.balloons()
+                            st.success("Formulaire terminé et validé !")
+                            st.write("Récapitulatif des données collectées :")
+                            final_data = {}
+                            for q_id, answer in st.session_state['form_answers'].items():
+                                if answer is not None and str(answer).strip() not in ["", "0"]:
+                                    q_row = df[df['id'] == q_id]
+                                    if not q_row.empty:
+                                        final_data[f"{q_row.iloc[0]['section']} - {q_row.iloc[0]['question']}"] = str(answer)
+                                    else:
+                                        final_data[str(q_id)] = str(answer)
+
+                            st.json(final_data)
+
+        else:
+             st.warning("Aucune section du formulaire n'est visible pour le moment. Veuillez vérifier votre fichier Excel et les conditions initiales.")
 
 else:
     st.info("Veuillez charger le fichier Excel contenant l'onglet 'Questions'.")
