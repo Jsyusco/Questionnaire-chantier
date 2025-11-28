@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 
-# --- CONFIGURATION ET STYLE (Non Modifié) ---
+# --- CONFIGURATION ET STYLE (Gemini Dark Mode) ---
 st.set_page_config(page_title="Formulaire Dynamique", layout="centered")
 
 st.markdown("""
@@ -79,11 +79,14 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- CHARGEMENT DES DONNÉES CORRIGÉ (Non Modifié) ---
+# --- CHARGEMENT DES DONNÉES (Avec Correction de Faute de Frappe) ---
 @st.cache_data
 def load_form_structure(file):
+    """Charge et prépare les données de la feuille 'Questions', incluant le nettoyage des noms de colonnes."""
     try:
         df = pd.read_excel(file, sheet_name='Questions', engine='openpyxl')
+        
+        # 1. Nettoyage et standardisation des noms de colonnes
         df.columns = df.columns.str.strip()
         df = df.rename(columns={
             'Conditon value': 'Condition value',
@@ -96,6 +99,7 @@ def load_form_structure(file):
             st.error(f"Colonne 'Condition value' introuvable. Colonnes détectées : {list(df.columns)}")
             return None
 
+        # 2. Remplissage des valeurs vides
         df['options'] = df['options'].fillna('')
         df['Description'] = df['Description'].fillna('')
         df['Condition value'] = df['Condition value'].fillna('')
@@ -116,10 +120,7 @@ if 'current_section_index' not in st.session_state:
 # --- FONCTIONS LOGIQUES ---
 
 def check_condition(row, answers):
-    """
-    Vérifie si une question DOIT être affichée en fonction des réponses précédentes.
-    Structure attendue dans 'Condition value': "ID_QUESTION = VALEUR"
-    """
+    """Vérifie si une question DOIT être affichée."""
     try:
         is_conditional = int(row['Condition on']) == 1
     except:
@@ -129,26 +130,22 @@ def check_condition(row, answers):
         return True
 
     condition_rule = str(row['Condition value']).strip()
-    if not condition_rule:
+    if not condition_rule or '=' not in condition_rule:
         return True
     
     try:
-        if '=' in condition_rule:
-            target_id_str, target_value = condition_rule.split('=', 1)
-            target_id = int(target_id_str.strip())
-            target_value = target_value.strip()
-            
-            user_answer = answers.get(target_id)
-            
-            # Correction pour les select qui sont "" si rien n'est sélectionné.
-            if user_answer is None or str(user_answer).strip() == "":
-                return False # Si la question parente n'a pas été remplie, la condition est fausse
-            
-            return str(user_answer) == str(target_value)
-        else:
-            return True 
-    except Exception as e:
-        # En cas d'erreur de parsing, on affiche pour ne pas bloquer
+        target_id_str, target_value = condition_rule.split('=', 1)
+        target_id = int(target_id_str.strip())
+        target_value = target_value.strip()
+        
+        user_answer = answers.get(target_id)
+        
+        # Si la question parente n'a pas été remplie, la condition est fausse
+        if user_answer is None or str(user_answer).strip() == "":
+            return False 
+        
+        return str(user_answer) == str(target_value)
+    except:
         return True
 
 def render_field(row):
@@ -160,27 +157,20 @@ def render_field(row):
     q_mandatory = str(row['obligatoire']).lower() == 'oui'
     q_options = str(row['options']).split(',') if row['options'] else []
     
-    # Construction du label (texte simple)
     display_text = f"{q_id}. {q_text}"
-    
-    # Clé unique pour le widget
     widget_key = f"q_{q_id}"
     current_val = st.session_state['form_answers'].get(q_id)
 
     with st.container():
+        st.markdown(f'<div class="question-block">', unsafe_allow_html=True)
         
-        
-        # --- CORRECTION APPORTÉE ICI ---
-        # 1. On construit le titre en HTML
+        # Affichage du titre avec astérisque stylisé
         mandatory_star = f'<span class="mandatory">*</span>' if q_mandatory else ""
-        
-        # 2. On affiche le titre de la question (avec l'astérisque inclus en HTML si obligatoire)
         st.markdown(f'<h3 style="color:#e0e0e0; font-size:1.1em; margin-bottom: 5px;">{display_text} {mandatory_star}</h3>', unsafe_allow_html=True)
         
         val = None
         
-        # L'affichage des widgets reste le même, mais nous utilisons display_text comme clé pour label_visibility="collapsed"
-        
+        # Rendu des widgets (label_visibility="collapsed" car le titre est déjà affiché)
         if q_type == 'text':
             st.text_input(display_text, value=current_val if current_val else "", key=widget_key, label_visibility="collapsed")
             val = st.session_state[widget_key]
@@ -213,64 +203,26 @@ def render_field(row):
             
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # Mise à jour du dictionnaire d'answers pour la condition
+        # Mise à jour de la réponse dans le dictionnaire pour la condition
         st.session_state['form_answers'][q_id] = val
 
 
-def check_condition(row, answers):
-    """
-    Vérifie si une question DOIT être affichée en fonction des réponses précédentes.
-    (Non modifié - il fonctionne pour les questions individuelles)
-    """
-    try:
-        is_conditional = int(row['Condition on']) == 1
-    except:
-        is_conditional = False
-
-    if not is_conditional:
-        return True
-
-    condition_rule = str(row['Condition value']).strip()
-    if not condition_rule:
-        return True
-    
-    try:
-        if '=' in condition_rule:
-            target_id_str, target_value = condition_rule.split('=', 1)
-            target_id = int(target_id_str.strip())
-            target_value = target_value.strip()
-            
-            user_answer = answers.get(target_id)
-            
-            # Correction pour les select qui sont "" si rien n'est sélectionné.
-            if user_answer is None or str(user_answer).strip() == "":
-                return False 
-            
-            return str(user_answer) == str(target_value)
-        else:
-            return True 
-    except Exception as e:
-        return True
-
 def get_visible_sections(df, answers):
-    """
-    Détermine la liste ordonnée des sections qui DOIVENT être affichées 
-    en fonction de toutes les conditions.
-    """
+    """Détermine la liste ordonnée des sections qui DOIVENT être affichées."""
     all_sections = df['section'].unique().tolist()
     final_visible_sections = []
     
     for section_name in all_sections:
-        # On vérifie si au moins UNE question de cette section est visible
         section_questions = df[df['section'] == section_name]
         is_visible = False
         
-        # Le premier élément du fichier (souvent Identification/Phase) est toujours visible.
-        # On assume que les deux premières sections ne sont pas conditionnelles à elles-mêmes.
+        # Les premières sections (Identification, Phase) sont toujours visibles.
+        # On suppose que les deux premières sections ne sont pas conditionnelles à elles-mêmes.
         if all_sections.index(section_name) < 2: 
             is_visible = True
         else:
-            for index, row in section_questions.iterrows():
+            # Vérifie si au moins UNE question de cette section est visible
+            for _, row in section_questions.iterrows():
                 if check_condition(row, answers):
                     is_visible = True
                     break
@@ -281,31 +233,32 @@ def get_visible_sections(df, answers):
     return final_visible_sections
 
 def validate_section(df, current_section_name):
-    # ... (La fonction validate_section n'est pas modifiée) ...
     """Vérifie si toutes les questions OBLIGATOIRES et VISIBLES sont remplies."""
     section_questions = df[df['section'] == current_section_name]
     answers = st.session_state['form_answers']
     
     missing_fields = []
     
-    for index, row in section_questions.iterrows():
+    for _, row in section_questions.iterrows():
         q_id = int(row['id'])
         q_mandatory = str(row['obligatoire']).lower() == 'oui'
         
-        # 1. Vérifie si la question doit être affichée
+        # 1. Vérifie si la question doit être affichée ET si elle est obligatoire
         if check_condition(row, answers) and q_mandatory:
             answer = answers.get(q_id)
             
-            # 2. Vérifie si la réponse est vide (pour tous les types)
             is_empty = False
             
             if answer is None:
                 is_empty = True
-            elif isinstance(answer, (str, int, float)) and (str(answer).strip() == "" or str(answer) == "0"):
-                if row['type'].strip().lower() != 'number':
+            elif isinstance(answer, (str, int, float)):
+                # Gère les chaînes vides, les selectbox à "" et les number input à 0 (si non souhaité, 
+                # il faudrait ajouter une règle pour les numbers)
+                if str(answer).strip() == "":
                     is_empty = True
                 elif row['type'].strip().lower() == 'select' and str(answer).strip() == "":
                     is_empty = True
+                # Pour les number input, on suppose 0 est acceptable sauf indication contraire
             elif row['type'].strip().lower() == 'photo' and answer is None:
                 is_empty = True
 
@@ -323,11 +276,10 @@ def validate_section(df, current_section_name):
 def navigate(direction, df):
     """Fonction principale de navigation avec validation et saut de sections."""
     
-    # 1. Obtenir la liste des sections VISIBLES
-    # IMPORTANT : On doit refaire cette liste car une réponse peut avoir changé les sections visibles
+    # 1. Obtenir la liste des sections VISIBLES (la plus récente)
     visible_sections = get_visible_sections(df, st.session_state['form_answers'])
     
-    # 2. Gérer la navigation "Précédent" (pas de validation nécessaire)
+    # 2. Gérer la navigation "Précédent"
     if direction == 'prev':
         new_index = st.session_state['current_section_index'] - 1
         if new_index >= 0:
@@ -336,26 +288,22 @@ def navigate(direction, df):
         
     # --- Navigation "Suivant" avec Validation ---
     
-    # 3. Trouver l'index actuel dans la liste visible
     try:
         current_section_name = visible_sections[st.session_state['current_section_index']]
     except IndexError:
-        # Peut arriver si l'index est trop grand après une modification des conditions.
         st.session_state['current_section_index'] = 0
         return
         
-    # 4. Validation
+    # 3. Validation de la section actuelle
     if validate_section(df, current_section_name):
         
-        # 5. Calculer le nouvel index
+        # 4. Calculer le nouvel index
         new_index = st.session_state['current_section_index'] + 1
         
         if new_index < len(visible_sections):
-            # C'est bon, on peut avancer
             st.session_state['current_section_index'] = new_index
         else:
-            # On est arrivé à la fin de la liste visible (ce qui déclenchera le bouton "Soumettre")
-            # On s'assure que l'index ne dépasse pas la taille de la liste
+            # S'assurer que l'on reste sur la dernière section (pour voir le bouton soumettre)
             st.session_state['current_section_index'] = len(visible_sections) - 1
 
 # --- MAIN APP ---
@@ -364,33 +312,19 @@ st.markdown('<div class="form-container"><h1>📝 Formulaire de Travaux</h1></di
 
 uploaded_file = st.file_uploader("Chargez le fichier Excel de structure (Questions)", type=["xlsx"])
 
-# ... (Dans le bloc MAIN APP) ...
-
 if uploaded_file is not None:
     df = load_form_structure(uploaded_file)
     
     if df is not None:
         
-        # 1. Mise à jour DYNAMIQUE des sections visibles à chaque exécution
-        visible_sections = get_visible_sections(df, st.session_state['form_answers'])
-        
-        # 2. Sécurité de l'index : Assure que l'index reste dans les limites de la nouvelle liste
-        if not visible_sections:
-            st.warning("Aucune section visible après Identification/Phase.")
-            return # Sortir si rien n'est visible
-            
-        if st.session_state['current_section_index'] >= len(visible_sections):
-             # Rediriger vers la fin (bouton Soumettre)
-             st.session_state['current_section_index'] = len(visible_sections) - 1
-        if st.session_state['current_section_index'] < 0:
-             st.session_state['current_section_index'] = 0
-        
-        # ... (le reste du code est inchangé) ...
-        
         # Liste des sections à afficher (dynamique)
         visible_sections = get_visible_sections(df, st.session_state['form_answers'])
         
-        # Sécurité index
+        # Sécurité de l'index : Assure que l'index reste dans les limites de la liste visible
+        if not visible_sections:
+            st.warning("Aucune section visible.")
+            return
+            
         if st.session_state['current_section_index'] >= len(visible_sections):
              st.session_state['current_section_index'] = len(visible_sections) - 1
         if st.session_state['current_section_index'] < 0:
@@ -410,10 +344,9 @@ if uploaded_file is not None:
         
         visible_questions_count = 0
         
-        # Utilisation d'un Form Streamlit pour regrouper les questions et forcer la mise à jour
         with st.container():
-            for index, row in section_questions.iterrows():
-                # Vérification Conditionnelle
+            for _, row in section_questions.iterrows():
+                # Vérification Conditionnelle : n'affiche que les questions nécessaires
                 if check_condition(row, st.session_state['form_answers']):
                     render_field(row)
                     visible_questions_count += 1
@@ -426,7 +359,6 @@ if uploaded_file is not None:
         
         with col1:
             if st.session_state['current_section_index'] > 0:
-                # Utilise une lambda pour passer le DataFrame à la fonction navigate
                 st.button("⬅️ Précédent", on_click=lambda: navigate('prev', df))
         
         with col3:
@@ -436,19 +368,17 @@ if uploaded_file is not None:
                 st.button("Suivant ➡️", on_click=lambda: navigate('next', df))
             else:
                 if st.button("✅ Soumettre le rapport"):
-                    # On valide une dernière fois avant la soumission
+                    # Validation finale avant la soumission
                     if validate_section(df, current_section_name):
                         st.balloons()
                         st.success("Formulaire terminé et validé !")
                         st.write("Récapitulatif des données collectées :")
-                        # Affichage des réponses valides uniquement
                         final_data = {}
                         for q_id, answer in st.session_state['form_answers'].items():
-                            if answer is not None and str(answer).strip() != "":
-                                # Retrouver la question pour la clarté
+                            if answer is not None and str(answer).strip() not in ["", "0"]:
                                 q_row = df[df['id'] == q_id]
                                 if not q_row.empty:
-                                    final_data[f"{q_id}. {q_row.iloc[0]['question']}"] = str(answer)
+                                    final_data[f"{q_row.iloc[0]['section']} - {q_row.iloc[0]['question']}"] = str(answer)
                                 else:
                                     final_data[str(q_id)] = str(answer)
 
