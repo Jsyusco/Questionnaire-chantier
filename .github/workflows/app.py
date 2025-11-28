@@ -210,6 +210,17 @@ def render_field(row):
                 st.session_state['form_answers'][phase_key] = {}
             st.session_state['form_answers'][phase_key][q_id] = val
 
+def find_phase_selection_section(df):
+    """
+    Cherche la section contenant la question de sélection de phase.
+    Retourne le nom de la section ou None si introuvable.
+    """
+    phase_questions = df[df['question'].str.contains("phase", case=False, na=False)]
+    if len(phase_questions) == 0:
+        return None
+    return phase_questions.iloc[0]['section']
+
+
 # --- NAVIGATION ---
 def next_section():
     st.session_state['current_section_index'] += 1
@@ -359,13 +370,23 @@ if uploaded_file is not None:
                                 is_valid_phase = False
                                 missing_phase.extend(missing_sec)
 
-                        if is_valid_phase:
-                            if st.button("✅ Démarrer une nouvelle phase"):
-                                st.session_state['current_phase'] += 1
-                                new_phase_key = get_current_phase_key()
-                                st.session_state['form_answers'][new_phase_key] = {}
+                       if st.button("✅ Démarrer une nouvelle phase"):
+                            # Incrémente la phase
+                            st.session_state['current_phase'] += 1
+                            new_phase_key = get_current_phase_key()
+                            st.session_state['form_answers'][new_phase_key] = {}
+                        
+                            # Redirige vers la section de sélection de phase
+                            target_section = find_phase_selection_section(df)
+                            visible_sections = [sec for sec in df['section'].unique() if check_section_condition(df[df['section']==sec], {})]
+                        
+                            if target_section and target_section in visible_sections:
+                                st.session_state['current_section_index'] = visible_sections.index(target_section)
+                            else:
                                 st.session_state['current_section_index'] = 0
-                                st.rerun()
+                        
+                            st.rerun()
+
                         else:
                             st.markdown('<div class="validation-error">', unsafe_allow_html=True)
                             st.error("⚠️ Impossible de commencer une nouvelle phase : des questions obligatoires sont manquantes dans la phase courante.")
