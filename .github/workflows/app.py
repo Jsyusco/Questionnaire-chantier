@@ -160,21 +160,29 @@ def render_field(row):
     q_mandatory = str(row['obligatoire']).lower() == 'oui'
     q_options = str(row['options']).split(',') if row['options'] else []
     
-    label = f"{q_id}. {q_text}" + (" " + st.markdown('<span class="mandatory">*</span>', unsafe_allow_html=True) if q_mandatory else "")
+    # Construction du label (texte simple)
+    display_text = f"{q_id}. {q_text}"
+    
+    # Clé unique pour le widget
     widget_key = f"q_{q_id}"
     current_val = st.session_state['form_answers'].get(q_id)
 
     with st.container():
         st.markdown(f'<div class="question-block">', unsafe_allow_html=True)
         
-        # Le label est affiché en Markdown pour intégrer la classe 'mandatory' de manière plus flexible
-        st.markdown(f'<h3 style="color:#e0e0e0; font-size:1.1em;">{label}</h3>', unsafe_allow_html=True)
+        # --- CORRECTION APPORTÉE ICI ---
+        # 1. On construit le titre en HTML
+        mandatory_star = f'<span class="mandatory">*</span>' if q_mandatory else ""
+        
+        # 2. On affiche le titre de la question (avec l'astérisque inclus en HTML si obligatoire)
+        st.markdown(f'<h3 style="color:#e0e0e0; font-size:1.1em; margin-bottom: 5px;">{display_text} {mandatory_star}</h3>', unsafe_allow_html=True)
         
         val = None
         
+        # L'affichage des widgets reste le même, mais nous utilisons display_text comme clé pour label_visibility="collapsed"
+        
         if q_type == 'text':
-            # On utilise le `key` pour la valeur et l'état
-            st.text_input(q_text, value=current_val if current_val else "", key=widget_key, label_visibility="collapsed")
+            st.text_input(display_text, value=current_val if current_val else "", key=widget_key, label_visibility="collapsed")
             val = st.session_state[widget_key]
             
         elif q_type == 'select':
@@ -184,17 +192,16 @@ def render_field(row):
                 
             index = clean_options.index(current_val) if current_val in clean_options else 0
                 
-            st.selectbox(q_text, clean_options, index=index, key=widget_key, label_visibility="collapsed")
+            st.selectbox(display_text, clean_options, index=index, key=widget_key, label_visibility="collapsed")
             val = st.session_state[widget_key]
 
         elif q_type == 'number':
-            # Assurez-vous que la valeur par défaut est 0 ou None
             num_val = float(current_val) if current_val else None 
-            st.number_input(q_text, value=num_val, key=widget_key, label_visibility="collapsed")
+            st.number_input(display_text, value=num_val, key=widget_key, label_visibility="collapsed")
             val = st.session_state[widget_key]
 
         elif q_type == 'photo':
-            st.file_uploader(q_text, type=['png', 'jpg', 'jpeg'], key=widget_key, label_visibility="collapsed")
+            st.file_uploader(display_text, type=['png', 'jpg', 'jpeg'], key=widget_key, label_visibility="collapsed")
             val = st.session_state[widget_key]
             if val is not None:
                 st.success(f"Image chargée : {val.name}")
