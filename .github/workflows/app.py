@@ -13,7 +13,7 @@ st.markdown("""
     
     /* Styles des blocs */
     .phase-block { background-color: #1e1e1e; padding: 25px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #333; }
-    /* MODIFICATION ICI : background-color: transparent pour supprimer le fond du bloc question */
+    /* MODIFICATION : Suppression du fond des questions */
     .question-card { background-color: transparent; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #4285F4; }
     
     /* Textes */
@@ -63,14 +63,13 @@ def load_site_data(file):
 # --- GESTION DE L'ÉTAT (SESSION STATE) ---
 def init_session_state():
     defaults = {
-        # Nouvelle étape 'IDENTIFICATION' ajoutée
-        'step': 'UPLOAD',              # UPLOAD, PROJECT, IDENTIFICATION, LOOP_DECISION, FILL_PHASE, FINISHED
-        'project_data': None,          # Données du projet sélectionné
-        'collected_data': [],          # Liste des phases validées (dictionnaires)
-        'current_phase_temp': {},      # Réponses temporaires de la phase en cours
-        'current_phase_name': None,    # Nom de la phase en cours (Section)
-        'iteration_id': str(uuid.uuid4()), # ID unique pour les widgets pour éviter les conflits
-        'identification_completed': False # Flag pour s'assurer que l'ID a été faite
+        'step': 'UPLOAD',
+        'project_data': None,
+        'collected_data': [],
+        'current_phase_temp': {},
+        'current_phase_name': None,
+        'iteration_id': str(uuid.uuid4()),
+        'identification_completed': False
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -81,17 +80,12 @@ init_session_state()
 # --- LOGIQUE MÉTIER ---
 
 def check_condition(row, current_answers, collected_data):
-    """
-    Vérifie si une question doit être affichée.
-    Recherche la réponse dans l'historique complet (phases validées) et la phase courante.
-    """
+    """Vérifie si une question doit être affichée."""
     
-    # 1. Collecter toutes les réponses précédentes (Phases terminées)
     all_past_answers = {}
     for phase_data in collected_data:
         all_past_answers.update(phase_data['answers'])
 
-    # 2. Combiner avec les réponses de la phase en cours (Les temporaires ont priorité)
     combined_answers = {**all_past_answers, **current_answers}
     
     try:
@@ -114,34 +108,27 @@ def check_condition(row, current_answers, collected_data):
         return True
 
 def validate_section(df_questions, section_name, answers, collected_data):
-    """
-    Valide si toutes les questions obligatoires d'une section ont une réponse.
-    Utilise l'historique pour évaluer les conditions d'affichage.
-    """
+    """Valide si toutes les questions obligatoires d'une section ont une réponse."""
     missing = []
     section_rows = df_questions[df_questions['section'] == section_name]
     
     for _, row in section_rows.iterrows():
-        # IMPORTANT : Utilise check_condition avec l'historique
         if not check_condition(row, answers, collected_data):
             continue
             
         is_mandatory = str(row['obligatoire']).strip().lower() == 'oui'
         if is_mandatory:
             q_id = int(row['id'])
-            # Vérifie la réponse dans le dictionnaire *courant*
             val = answers.get(q_id)
             if val is None or val == "" or (isinstance(val, (int, float)) and val == 0):
                 missing.append(f"Question {q_id} : {row['question']}")
                 
     return len(missing) == 0, missing
 
-# Renomme la fonction pour être plus générale
 validate_phase = validate_section
-# Renomme la fonction pour être plus générale et plus claire dans le contexte d'identification
 validate_identification = validate_section
 
-# --- COMPOSANTS UI (Aucun changement) ---
+# --- COMPOSANTS UI ---
 
 def render_question(row, answers, key_suffix):
     """Affiche un widget pour une question donnée."""
@@ -210,7 +197,6 @@ if st.session_state['step'] == 'UPLOAD':
 
 # 2. SÉLECTION PROJET
 elif st.session_state['step'] == 'PROJECT':
-    # ... (code de sélection de projet)
     df_site = st.session_state['df_site']
     st.markdown("### 🏗️ Sélection du Chantier")
     
@@ -229,7 +215,6 @@ elif st.session_state['step'] == 'PROJECT':
         if st.button("✅ Démarrer l'identification"):
             st.session_state['project_data'] = row.to_dict()
             st.session_state['step'] = 'IDENTIFICATION'
-            # Prépare les données temporaires pour l'identification
             st.session_state['current_phase_temp'] = {}
             st.session_state['iteration_id'] = str(uuid.uuid4())
             st.rerun()
@@ -238,8 +223,7 @@ elif st.session_state['step'] == 'PROJECT':
 elif st.session_state['step'] == 'IDENTIFICATION':
     df = st.session_state['df_struct']
     
-    # ⚠️ Assurez-vous que le nom de la section d'identification est cohérent dans votre Excel
-    ID_SECTION_NAME = df['section'].iloc[0] # Suppose que la première section est l'identification
+    ID_SECTION_NAME = df['section'].iloc[0]
     
     st.markdown(f'<div class="phase-block">', unsafe_allow_html=True)
     st.markdown(f"### 👤 Étape unique : {ID_SECTION_NAME}")
@@ -249,7 +233,6 @@ elif st.session_state['step'] == 'IDENTIFICATION':
     
     visible_count = 0
     for _, row in identification_questions.iterrows():
-        # L'identification n'a besoin que de ses réponses courantes pour check_condition (car c'est le début)
         if check_condition(row, st.session_state['current_phase_temp'], st.session_state['collected_data']):
             render_question(row, st.session_state['current_phase_temp'], st.session_state['iteration_id'])
             visible_count += 1
@@ -265,7 +248,6 @@ elif st.session_state['step'] == 'IDENTIFICATION':
         )
         
         if is_valid:
-            # Stocke l'identification comme première entrée dans l'historique
             id_entry = {
                 "phase_name": ID_SECTION_NAME,
                 "answers": st.session_state['current_phase_temp'].copy()
@@ -273,9 +255,8 @@ elif st.session_state['step'] == 'IDENTIFICATION':
             st.session_state['collected_data'].append(id_entry)
             st.session_state['identification_completed'] = True
             
-            # Passe directement à la boucle
             st.session_state['step'] = 'LOOP_DECISION'
-            st.session_state['current_phase_temp'] = {} # Nettoie le tampon
+            st.session_state['current_phase_temp'] = {}
             st.success("Identification validée. Passage au mode boucle.")
             st.rerun()
         else:
@@ -297,7 +278,6 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
 
     # --- A. DÉCISION (HUB) ---
     if st.session_state['step'] == 'LOOP_DECISION':
-        # ... (Logique de décision inchangée)
         st.markdown('<div class="phase-block">', unsafe_allow_html=True)
         st.markdown("### 🔄 Gestion des Phases de Travaux")
         
@@ -307,7 +287,6 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
         col1, col2 = st.columns(2)
         with col1:
             if st.button("➕ OUI, Ajouter une phase de travail"):
-                # Passe en mode remplissage
                 st.session_state['step'] = 'FILL_PHASE'
                 st.session_state['current_phase_temp'] = {}
                 st.session_state['current_phase_name'] = None
@@ -325,18 +304,20 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
         
         st.markdown(f'<div class="phase-block">', unsafe_allow_html=True)
         
-        # Détermine le nom de la section d'identification pour l'exclure
         ID_SECTION_NAME = None
         if st.session_state['collected_data']:
-            # Récupère le nom de l'identification dans les données collectées
             ID_SECTION_NAME = st.session_state['collected_data'][0]['phase_name']
         elif not df.empty:
-            # Sinon, suppose la première section du dataframe
             ID_SECTION_NAME = df['section'].iloc[0]
 
-        # Filtre les phases disponibles : toutes les sections uniques SAUF la section d'identification
+        # MODIFICATION CLÉ : Liste des sections à exclure
+        SECTIONS_TO_EXCLUDE = [ID_SECTION_NAME, "phase"]
+        
         all_sections = df['section'].unique().tolist()
-        available_phases = [sec for sec in all_sections if sec != ID_SECTION_NAME and sec]
+        available_phases = [
+            sec for sec in all_sections 
+            if sec not in SECTIONS_TO_EXCLUDE and sec
+        ]
         
         if not st.session_state['current_phase_name']:
              st.markdown("### 📑 Sélection de la phase")
@@ -346,7 +327,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
                  st.rerun()
              if st.button("⬅️ Retour au Menu Principal"):
                  st.session_state['step'] = 'LOOP_DECISION'
-                 st.session_state['current_phase_temp'] = {} # Optionnel : vider le tampon
+                 st.session_state['current_phase_temp'] = {}
                  st.rerun()
                  
         else:
