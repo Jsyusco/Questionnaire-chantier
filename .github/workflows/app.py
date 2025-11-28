@@ -32,8 +32,8 @@ st.markdown("""
     .description {
         font-size: 0.85em;
         color: #aaaaaa;
-        /* Ajustement des marges pour la position entre le label et l'input */
-        margin-top: -10px; 
+        /* La marge est ajustée pour un meilleur espacement entre la question (markdown) et l'input (widget) */
+        margin-top: 5px; 
         margin-bottom: 10px;
         font-style: italic;
     }
@@ -204,7 +204,10 @@ def validate_mandatory_questions(section_df, answers):
     return len(missing) == 0, missing
 
 def render_field(row):
-    """Génère le widget Streamlit approprié selon le type. Modifié pour afficher la description AVANT le champ."""
+    """
+    Génère le widget Streamlit approprié. 
+    Affiche la Question manuellement, puis la Description, puis le Champ de saisie (avec label masqué).
+    """
     q_id = int(row['id'])
     q_text = row['question']
     q_type = str(row['type']).strip().lower()
@@ -212,23 +215,27 @@ def render_field(row):
     q_mandatory = str(row['obligatoire']).lower() == 'oui'
     q_options = str(row['options']).split(',') if row['options'] else []
     
-    # Le label inclut le numéro et le marqueur obligatoire
-    label = f"{q_id}. {q_text}" + (" *" if q_mandatory else "")
+    # 1. Préparation du texte de la question pour l'affichage manuel
+    display_question = f"{q_id}. {q_text}" + (' <span class="mandatory">*</span>' if q_mandatory else "")
     widget_key = f"q_{q_id}" 
     current_val = st.session_state['form_answers'].get(q_id)
-    val = None # Initialiser val
+    val = None
 
     with st.container():
         st.markdown('<div class="question-block">', unsafe_allow_html=True) # Début du bloc Question
         
-        # --- 1. AFFICHAGE DE LA DESCRIPTION (Entre le label et l'input) ---
-        # Le label est affiché par le widget Streamlit ci-dessous.
+        # Affichage manuel de la Question (en haut)
+        st.markdown(f"**{display_question}**", unsafe_allow_html=True)
+        
+        # Affichage de la Description (au milieu)
         if q_desc:
             st.markdown(f'<p class="description">{q_desc}</p>', unsafe_allow_html=True)
             
-        # --- 2. AFFICHAGE DU CHAMP DE SAISIE ---
+        # Affichage du Champ de Saisie (en bas)
+        # On utilise label_visibility="collapsed" pour masquer le label du widget et éviter la duplication de la question
+        
         if q_type == 'text':
-            val = st.text_input(label, value=current_val if current_val else "", key=widget_key)
+            val = st.text_input(" ", value=current_val if current_val else "", key=widget_key, label_visibility="collapsed")
             
         elif q_type == 'select':
             index = 0
@@ -239,13 +246,14 @@ def render_field(row):
             if current_val in clean_options:
                 index = clean_options.index(current_val)
                 
-            val = st.selectbox(label, clean_options, index=index, key=widget_key)
+            val = st.selectbox(" ", clean_options, index=index, key=widget_key, label_visibility="collapsed")
             
         elif q_type == 'number':
-            val = st.number_input(label, value=int(current_val) if current_val else 0, key=widget_key)
+            val = st.number_input(" ", value=int(current_val) if current_val else 0, key=widget_key, label_visibility="collapsed")
             
         elif q_type == 'photo':
-            val = st.file_uploader(label, type=['png', 'jpg', 'jpeg'], key=widget_key)
+            # Pour le file_uploader, on utilise quand même le label_visibility pour la cohérence
+            val = st.file_uploader(" ", type=['png', 'jpg', 'jpeg'], key=widget_key, label_visibility="collapsed")
             if val is not None:
                 st.success(f"Image chargée : {val.name}")
             elif current_val is not None:
