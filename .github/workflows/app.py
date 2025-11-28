@@ -36,12 +36,10 @@ def load_form_structure(file):
     try:
         df = pd.read_excel(file, sheet_name='Questions', engine='openpyxl')
         df.columns = df.columns.str.strip()
-        # Standardisation des colonnes
         rename_map = {k: 'Condition value' for k in ['Conditon value', 'condition value', 'Condition Value']}
         rename_map.update({k: 'Condition on' for k in ['Conditon on', 'condition on']})
         df = df.rename(columns=rename_map)
         
-        # Remplissage des vides
         df['options'] = df['options'].fillna('')
         df['Description'] = df['Description'].fillna('')
         df['Condition value'] = df['Condition value'].fillna('')
@@ -79,8 +77,21 @@ init_session_state()
 
 # --- LOGIQUE MÉTIER ---
 
-def check_condition(row, answers):
-    """Vérifie si une question doit être affichée selon les réponses précédentes."""
+def check_condition(row, current_answers, collected_data):
+    """
+    Vérifie si une question doit être affichée.
+    Recherche la réponse dans l'historique complet (phases validées) et la phase courante.
+    """
+    
+    # 1. Collecter toutes les réponses précédentes (Phases terminées)
+    all_past_answers = {}
+    for phase_data in collected_data:
+        # NOTE: On ignore les fichiers chargés (type photo) dans la fusion simple si on ne les traite pas.
+        all_past_answers.update(phase_data['answers'])
+
+    # 2. Combiner avec les réponses de la phase en cours (Les temporaires ont priorité)
+    combined_answers = {**all_past_answers, **current_answers}
+    
     try:
         if int(row.get('Condition on', 0)) != 1:
             return True
@@ -94,35 +105,39 @@ def check_condition(row, answers):
             target_id = int(target_id_str.strip())
             target_value = target_value.strip()
             
-            # Récupère la réponse à la question conditionnelle
-            user_answer = answers.get(target_id)
+            # Utilise les réponses combinées pour la vérification
+            user_answer = combined_answers.get(target_id)
             return str(user_answer) == str(target_value)
         return True
     except:
-        return True # En cas d'erreur de logique, on affiche par défaut
+        return True
 
-def validate_phase(df_questions, phase_name, answers):
-    """Valide si toutes les questions obligatoires de la phase ont une réponse."""
+def validate_phase(df_questions, phase_name, answers, collected_data):
+    """
+    Valide si toutes les questions obligatoires de la phase ont une réponse.
+    Ignore les questions dont la condition d'affichage n'est pas remplie (en utilisant l'historique).
+    """
     missing = []
     # On filtre uniquement les questions de la phase active
     phase_rows = df_questions[df_questions['section'] == phase_name]
     
     for _, row in phase_rows.iterrows():
         # Si la question n'est pas affichée (condition non remplie), on l'ignore
-        if not check_condition(row, answers):
+        # IMPORTANT : On passe l'historique pour évaluer correctement la condition
+        if not check_condition(row, answers, collected_data):
             continue
             
         is_mandatory = str(row['obligatoire']).strip().lower() == 'oui'
         if is_mandatory:
             q_id = int(row['id'])
+            # On vérifie la réponse dans le dictionnaire *courant* (answers) de la phase en cours
             val = answers.get(q_id)
-            # Vérification simple : ni None, ni vide, ni 0 (sauf si 0 est une réponse valide explicitement)
-            if val is None or val == "" or val == []:
+            if val is None or val == "" or (isinstance(val, (int, float)) and val == 0):
                 missing.append(f"Question {q_id} : {row['question']}")
                 
     return len(missing) == 0, missing
 
-# --- COMPOSANTS UI ---
+# --- COMPOSANTS UI (Aucun changement) ---
 
 def render_question(row, answers, key_suffix):
     """Affiche un widget pour une question donnée."""
@@ -136,14 +151,12 @@ def render_question(row, answers, key_suffix):
     label_html = f"<strong>{q_id}. {q_text}</strong>" + (' <span class="mandatory">*</span>' if q_mandatory else "")
     widget_key = f"q_{q_id}_{key_suffix}"
     
-    # Récupération valeur actuelle ou défaut
     current_val = answers.get(q_id)
-    
+    val = current_val
+
     st.markdown(f'<div class="question-card"><div>{label_html}</div>', unsafe_allow_html=True)
     if q_desc:
         st.markdown(f'<div class="description">{q_desc}</div>', unsafe_allow_html=True)
-
-    val = current_val
 
     if q_type == 'text':
         val = st.text_input("Réponse", value=current_val if current_val else "", key=widget_key, label_visibility="collapsed")
@@ -158,19 +171,19 @@ def render_question(row, answers, key_suffix):
         val = st.selectbox("Sélection", clean_opts, index=idx, key=widget_key, label_visibility="collapsed")
         
     elif q_type == 'number':
-        val = st.number_input("Nombre", value=float(current_val) if current_val else 0.0, key=widget_key, label_visibility="collapsed")
+        # Gère la valeur par défaut pour éviter les erreurs si current_val est None
+        default_val = float(current_val) if current_val else 0.0
+        val = st.number_input("Nombre", value=default_val, key=widget_key, label_visibility="collapsed")
         
     elif q_type == 'photo':
         val = st.file_uploader("Image", type=['png', 'jpg', 'jpeg'], key=widget_key, label_visibility="collapsed")
         if val:
             st.success(f"Image chargée : {val.name}")
-            # Note : Pour stocker l'objet fichier dans answers, Streamlit le gère, mais attention à la sérialisation plus tard
         elif current_val:
             st.info("Image conservée de la session précédente.")
 
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Mise à jour immédiate du dictionnaire temporaire
     if val is not None:
         answers[q_id] = val
 
@@ -196,6 +209,12 @@ elif st.session_state['step'] == 'PROJECT':
     df_site = st.session_state['df_site']
     st.markdown("### 🏗️ Sélection du Chantier")
     
+    # Assurez-vous que la colonne 'Intitulé' existe avant de l'utiliser
+    if 'Intitulé' not in df_site.columns:
+        st.error("Colonne 'Intitulé' manquante dans la feuille 'Site'. Impossible de continuer.")
+        st.session_state['step'] = 'UPLOAD'
+        st.rerun()
+        
     projects = [""] + df_site['Intitulé'].dropna().unique().tolist()
     selected_proj = st.selectbox("Rechercher un projet", projects)
     
@@ -204,7 +223,6 @@ elif st.session_state['step'] == 'PROJECT':
         st.info(f"Projet sélectionné : {selected_proj} (Code: {row.get('Code Site', 'N/A')})")
         
         if st.button("✅ Démarrer l'audit"):
-            # On stocke les infos du projet
             st.session_state['project_data'] = row.to_dict()
             st.session_state['step'] = 'LOOP_DECISION'
             st.rerun()
@@ -216,7 +234,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
     with st.expander(f"📍 Projet : {st.session_state['project_data'].get('Intitulé')}", expanded=False):
         st.json(st.session_state['project_data'])
 
-    # -- A. DÉCISION --
+    # --- A. DÉCISION (HUB) ---
     if st.session_state['step'] == 'LOOP_DECISION':
         st.markdown('<div class="phase-block">', unsafe_allow_html=True)
         st.markdown("### 🔄 Gestion des Phases")
@@ -248,7 +266,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
                 st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # -- B. REMPLISSAGE --
+    # --- B. REMPLISSAGE (FORMULAIRE) ---
     elif st.session_state['step'] == 'FILL_PHASE':
         df = st.session_state['df_struct']
         
@@ -257,7 +275,6 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
         # Choix de la phase (basé sur la colonne 'section' unique du fichier Excel)
         available_phases = df['section'].unique().tolist()
         
-        # Si on n'a pas encore choisi la phase
         if not st.session_state['current_phase_name']:
              st.markdown("### 📑 Sélection de la phase")
              phase_choice = st.selectbox("Quelle phase souhaitez-vous renseigner ?", [""] + available_phases)
@@ -269,7 +286,6 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
                  st.rerun()
                  
         else:
-            # Phase choisie, on affiche les questions
             current_phase = st.session_state['current_phase_name']
             st.markdown(f"### 📝 Remplissage : {current_phase}")
             
@@ -280,19 +296,17 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             
             st.markdown("---")
             
-            # Filtrer les questions de cette section
             section_questions = df[df['section'] == current_phase]
             
-            # Affichage dynamique des questions
             visible_count = 0
             for _, row in section_questions.iterrows():
-                # On vérifie la condition (basée sur les réponses actuelles stockées dans temp)
-                if check_condition(row, st.session_state['current_phase_temp']):
+                # **CLÉ DE LA CORRECTION** : Passage de l'historique complet
+                if check_condition(row, st.session_state['current_phase_temp'], st.session_state['collected_data']): 
                     render_question(row, st.session_state['current_phase_temp'], st.session_state['iteration_id'])
                     visible_count += 1
             
             if visible_count == 0:
-                st.warning("Aucune question applicable pour cette phase.")
+                st.warning("Aucune question applicable pour cette phase. Vérifiez les conditions d'affichage et l'orthographe de la section dans votre fichier Excel.")
 
             st.markdown("---")
             
@@ -304,11 +318,15 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
                     st.rerun()
             with c2:
                 if st.button("💾 Valider et Enregistrer la phase"):
-                    # Validation
-                    is_valid, errors = validate_phase(df, current_phase, st.session_state['current_phase_temp'])
+                    # **CLÉ DE LA CORRECTION** : Passage de l'historique complet pour la validation
+                    is_valid, errors = validate_phase(
+                        df, 
+                        current_phase, 
+                        st.session_state['current_phase_temp'],
+                        st.session_state['collected_data'] 
+                    )
                     
                     if is_valid:
-                        # Sauvegarde
                         new_entry = {
                             "phase_name": current_phase,
                             "answers": st.session_state['current_phase_temp'].copy()
@@ -316,7 +334,6 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
                         st.session_state['collected_data'].append(new_entry)
                         
                         st.success("Phase enregistrée avec succès !")
-                        # Retour à la boucle
                         st.session_state['step'] = 'LOOP_DECISION'
                         st.rerun()
                     else:
@@ -338,7 +355,7 @@ elif st.session_state['step'] == 'FINISHED':
     # Affichage des données brutes pour vérification
     for i, phase in enumerate(st.session_state['collected_data']):
         with st.expander(f"Phase {i+1} : {phase['phase_name']}"):
-            st.write(phase['answers'])
+            st.json(phase['answers'])
             
     # Bouton pour tout recommencer
     if st.button("🔄 Commencer un nouveau projet"):
