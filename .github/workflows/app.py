@@ -304,20 +304,30 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
         
         st.markdown(f'<div class="phase-block">', unsafe_allow_html=True)
         
+        # Récupération du nom de la section d'identification (qui est toujours la première)
         ID_SECTION_NAME = None
         if st.session_state['collected_data']:
             ID_SECTION_NAME = st.session_state['collected_data'][0]['phase_name']
         elif not df.empty:
             ID_SECTION_NAME = df['section'].iloc[0]
 
-        # MODIFICATION CLÉ : Liste des sections à exclure
-        SECTIONS_TO_EXCLUDE = [ID_SECTION_NAME, "phase"]
+        # MODIFICATION CLÉ : Préparation de la liste d'exclusion en format nettoyé (strip().lower())
+        # Ajout du nom d'identification nettoyé et de la chaîne "phase"
+        ID_SECTION_CLEAN = str(ID_SECTION_NAME).strip().lower() if ID_SECTION_NAME else None
+        SECTIONS_TO_EXCLUDE_CLEAN = {ID_SECTION_CLEAN, "phase"}
         
-        all_sections = df['section'].unique().tolist()
-        available_phases = [
-            sec for sec in all_sections 
-            if sec not in SECTIONS_TO_EXCLUDE and sec
-        ]
+        all_sections_raw = df['section'].unique().tolist()
+        available_phases = []
+        for sec in all_sections_raw:
+            if pd.isna(sec) or not sec:
+                continue
+            
+            # Nettoyage de la section pour la comparaison
+            sec_clean = str(sec).strip().lower()
+            
+            if sec_clean not in SECTIONS_TO_EXCLUDE_CLEAN:
+                # On ajoute la version originale (non nettoyée) pour l'affichage dans le selectbox
+                available_phases.append(sec)
         
         if not st.session_state['current_phase_name']:
              st.markdown("### 📑 Sélection de la phase")
@@ -341,6 +351,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             
             st.markdown("---")
             
+            # Utiliser le nom de phase non nettoyé pour filtrer les questions
             section_questions = df[df['section'] == current_phase]
             
             visible_count = 0
