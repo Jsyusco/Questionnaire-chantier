@@ -120,7 +120,7 @@ def load_form_structure(file):
 def load_site_data(file):
     """Charge les données de la feuille 'site' pour sélection du projet"""
     try:
-        df_site = pd.read_excel(file, sheet_name='Site', engine='openpyxl')
+        df_site = pd.read_excel(file, sheet_name='site', engine='openpyxl')
         df_site.columns = df_site.columns.str.strip()
         return df_site
     except Exception as e:
@@ -218,6 +218,9 @@ def render_field(row):
     with st.container():
         if q_type == 'text':
             val = st.text_input(label, value=current_val if current_val else "", key=widget_key)
+            # Afficher la description immédiatement après le champ
+            if q_desc:
+                st.markdown(f'<p class="description">{q_desc}</p>', unsafe_allow_html=True)
             
         elif q_type == 'select':
             index = 0
@@ -229,9 +232,15 @@ def render_field(row):
                 index = clean_options.index(current_val)
                 
             val = st.selectbox(label, clean_options, index=index, key=widget_key)
+            # Afficher la description immédiatement après le champ
+            if q_desc:
+                st.markdown(f'<p class="description">{q_desc}</p>', unsafe_allow_html=True)
             
         elif q_type == 'number':
             val = st.number_input(label, value=int(current_val) if current_val else 0, key=widget_key)
+            # Afficher la description immédiatement après le champ
+            if q_desc:
+                st.markdown(f'<p class="description">{q_desc}</p>', unsafe_allow_html=True)
             
         elif q_type == 'photo':
             val = st.file_uploader(label, type=['png', 'jpg', 'jpeg'], key=widget_key)
@@ -239,9 +248,9 @@ def render_field(row):
                 st.success(f"Image chargée : {val.name}")
             elif current_val is not None:
                 st.info("Image déjà chargée précédemment.")
-
-        if q_desc:
-            st.markdown(f'<p class="description">{q_desc}</p>', unsafe_allow_html=True)
+            # Afficher la description immédiatement après le champ
+            if q_desc:
+                st.markdown(f'<p class="description">{q_desc}</p>', unsafe_allow_html=True)
             
         st.markdown('</div>', unsafe_allow_html=True)
 
