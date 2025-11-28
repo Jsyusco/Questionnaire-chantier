@@ -116,12 +116,29 @@ def load_form_structure(file):
         st.error(f"Erreur technique lors de la lecture : {e}")
         return None
 
+@st.cache_data
+def load_site_data(file):
+    """Charge les données de la feuille 'site' pour sélection du projet"""
+    try:
+        df_site = pd.read_excel(file, sheet_name='site', engine='openpyxl')
+        df_site.columns = df_site.columns.str.strip()
+        return df_site
+    except Exception as e:
+        st.error(f"Erreur lors de la lecture de la feuille 'site' : {e}")
+        return None
+
 # --- GESTION DE L'ÉTAT ---
 if 'form_answers' not in st.session_state:
     st.session_state['form_answers'] = {}
 
 if 'current_section_index' not in st.session_state:
     st.session_state['current_section_index'] = 0
+
+if 'selected_project' not in st.session_state:
+    st.session_state['selected_project'] = None
+
+if 'project_data' not in st.session_state:
+    st.session_state['project_data'] = {}
 
 # --- FONCTIONS LOGIQUES ---
 
@@ -246,86 +263,184 @@ uploaded_file = st.file_uploader("Chargez le fichier Excel de structure (Questio
 
 if uploaded_file is not None:
     df = load_form_structure(uploaded_file)
+    df_site = load_site_data(uploaded_file)
     
-    if df is not None:
-        # Récupération de toutes les sections
-        all_sections = df['section'].unique().tolist()
+    if df is not None and df_site is not None:
         
-        # Filtrer les sections visibles selon les conditions
-        visible_sections = []
-        for section_name in all_sections:
-            section_df = df[df['section'] == section_name]
-            if check_section_condition(section_df, st.session_state['form_answers']):
-                visible_sections.append(section_name)
-        
-        # Si aucune section n'est visible, afficher la première par défaut
-        if not visible_sections:
-            visible_sections = [all_sections[0]]
-        
-        # Sécurité index
-        if st.session_state['current_section_index'] >= len(visible_sections):
-            st.session_state['current_section_index'] = len(visible_sections) - 1
-        
-        current_section_name = visible_sections[st.session_state['current_section_index']]
-        
-        # Barre de progression
-        progress = (st.session_state['current_section_index'] + 1) / len(visible_sections)
-        st.progress(progress)
-        st.caption(f"Section {st.session_state['current_section_index'] + 1}/{len(visible_sections)} : {current_section_name}")
-
-        # --- AFFICHAGE DU FORMULAIRE POUR LA SECTION COURANTE ---
-        st.markdown(f"## {current_section_name}")
-        
-        section_questions = df[df['section'] == current_section_name]
-        
-        visible_questions_count = 0
-        
-        for index, row in section_questions.iterrows():
-            if check_condition(row, st.session_state['form_answers']):
-                render_field(row)
-                visible_questions_count += 1
-        
-        if visible_questions_count == 0:
-            st.info("Aucune question visible pour cette section selon vos choix précédents.")
-
-        # --- VALIDATION DES QUESTIONS OBLIGATOIRES ---
-        is_valid, missing_questions = validate_mandatory_questions(
-            section_questions, 
-            st.session_state['form_answers']
-        )
-
-        # --- BOUTONS DE NAVIGATION ---
-        col1, col2, col3 = st.columns([1, 2, 1])
-        
-        with col1:
-            if st.session_state['current_section_index'] > 0:
-                st.button("⬅️ Précédent", on_click=prev_section)
-        
-        with col3:
-            if st.session_state['current_section_index'] < len(visible_sections) - 1:
-                # Bouton "Suivant" avec validation
-                if st.button("Suivant ➡️"):
-                    if is_valid:
-                        next_section()
+        # --- SÉLECTION DU PROJET ---
+        if st.session_state['selected_project'] is None:
+            st.markdown('<div class="form-container">', unsafe_allow_html=True)
+            st.markdown("### 🏗️ Sélection du Projet")
+            
+            # Liste des intitulés de projets
+            if 'Intitulé' in df_site.columns:
+                project_options = [""] + df_site['Intitulé'].dropna().tolist()
+                
+                selected = st.selectbox(
+                    "Choisissez l'intitulé du projet",
+                    project_options,
+                    key="project_selector"
+                )
+                
+                if selected and selected != "":
+                    # Récupérer les données du projet sélectionné
+                    project_row = df_site[df_site['Intitulé'] == selected].iloc[0]
+                    
+                    # Mapping des colonnes à afficher
+                    display_mapping = {
+                        'L [Plan de Déploiement]': 'PDC L',
+                        'R [Plan de Déploiement]': 'PDC R',
+                        'UR [Plan de Déploiement]': 'PDC UR',
+                        'Pré L [Plan de Déploiement]': 'PDC pré-équipés L',
+                        'Pré R [Plan de Déploiement]': 'PDC pré-équipés R',
+                        'Pré UR [Plan de Déploiement]': 'PDC pré-équipés UR',
+                        'Fournisseur Bornes AC [Bornes]': 'Fournisseur Bornes AC',
+                        'Fournisseur Bornes DC [Bornes]': 'Fournisseur Bornes DC'
+                    }
+                    
+                    # Afficher les informations du projet
+                    st.markdown("---")
+                    st.markdown("#### 📊 Informations du Projet")
+                    
+                    project_info = {}
+                    for col_name, display_name in display_mapping.items():
+                        if col_name in project_row.index:
+                            value = project_row[col_name]
+                            project_info[display_name] = value
+                            st.write(f"**{display_name}:** {value}")
+                    
+                    st.markdown("---")
+                    
+                    # Bouton de validation
+                    if st.button("✅ Valider et commencer le formulaire", key="validate_project"):
+                        st.session_state['selected_project'] = selected
+                        st.session_state['project_data'] = project_info
                         st.rerun()
-                    else:
-                        # Afficher les erreurs de validation
-                        st.markdown('<div class="validation-error">', unsafe_allow_html=True)
-                        st.error("⚠️ Veuillez répondre à toutes les questions obligatoires (*) avant de continuer :")
-                        for missing in missing_questions:
-                            st.write(f"• {missing}")
-                        st.markdown('</div>', unsafe_allow_html=True)
             else:
-                # Bouton "Soumettre" avec validation
-                if st.button("✅ Soumettre le rapport"):
-                    if is_valid:
-                        st.success("✅ Formulaire terminé avec succès !")
-                        st.write("Récapitulatif des données collectées :")
-                        display_data = {k: str(v) for k, v in st.session_state['form_answers'].items()}
-                        st.json(display_data)
-                    else:
-                        st.markdown('<div class="validation-error">', unsafe_allow_html=True)
-                        st.error("⚠️ Veuillez répondre à toutes les questions obligatoires (*) avant de soumettre :")
-                        for missing in missing_questions:
-                            st.write(f"• {missing}")
-                        st.markdown('</div>', unsafe_allow_html=True)
+                st.error("La colonne 'Intitulé' n'a pas été trouvée dans la feuille 'site'.")
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        else:
+            # --- AFFICHAGE DU FORMULAIRE (projet déjà sélectionné) ---
+            
+            # Afficher le projet sélectionné en haut
+            st.markdown('<div class="form-container">', unsafe_allow_html=True)
+            st.markdown(f"### 🏗️ Projet : {st.session_state['selected_project']}")
+            
+            with st.expander("📊 Voir les informations du projet"):
+                for key, value in st.session_state['project_data'].items():
+                    st.write(f"**{key}:** {value}")
+            
+            if st.button("🔄 Changer de projet"):
+                st.session_state['selected_project'] = None
+                st.session_state['current_section_index'] = 0
+                st.session_state['form_answers'] = {}
+                st.rerun()
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        else:
+            # --- AFFICHAGE DU FORMULAIRE (projet déjà sélectionné) ---
+            
+            # Afficher le projet sélectionné en haut
+            st.markdown('<div class="form-container">', unsafe_allow_html=True)
+            st.markdown(f"### 🏗️ Projet : {st.session_state['selected_project']}")
+            
+            with st.expander("📊 Voir les informations du projet"):
+                for key, value in st.session_state['project_data'].items():
+                    st.write(f"**{key}:** {value}")
+            
+            if st.button("🔄 Changer de projet"):
+                st.session_state['selected_project'] = None
+                st.session_state['current_section_index'] = 0
+                st.session_state['form_answers'] = {}
+                st.rerun()
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            # Récupération de toutes les sections
+            all_sections = df['section'].unique().tolist()
+            
+            # Filtrer les sections visibles selon les conditions
+            visible_sections = []
+            for section_name in all_sections:
+                section_df = df[df['section'] == section_name]
+                if check_section_condition(section_df, st.session_state['form_answers']):
+                    visible_sections.append(section_name)
+            
+            # Si aucune section n'est visible, afficher la première par défaut
+            if not visible_sections:
+                visible_sections = [all_sections[0]]
+            
+            # Sécurité index
+            if st.session_state['current_section_index'] >= len(visible_sections):
+                st.session_state['current_section_index'] = len(visible_sections) - 1
+            
+            current_section_name = visible_sections[st.session_state['current_section_index']]
+            
+            # Barre de progression
+            progress = (st.session_state['current_section_index'] + 1) / len(visible_sections)
+            st.progress(progress)
+            st.caption(f"Section {st.session_state['current_section_index'] + 1}/{len(visible_sections)} : {current_section_name}")
+
+            # --- AFFICHAGE DU FORMULAIRE POUR LA SECTION COURANTE ---
+            st.markdown(f"## {current_section_name}")
+            
+            section_questions = df[df['section'] == current_section_name]
+            
+            visible_questions_count = 0
+            
+            for index, row in section_questions.iterrows():
+                if check_condition(row, st.session_state['form_answers']):
+                    render_field(row)
+                    visible_questions_count += 1
+            
+            if visible_questions_count == 0:
+                st.info("Aucune question visible pour cette section selon vos choix précédents.")
+
+            # --- VALIDATION DES QUESTIONS OBLIGATOIRES ---
+            is_valid, missing_questions = validate_mandatory_questions(
+                section_questions, 
+                st.session_state['form_answers']
+            )
+
+            # --- BOUTONS DE NAVIGATION ---
+            col1, col2, col3 = st.columns([1, 2, 1])
+            
+            with col1:
+                if st.session_state['current_section_index'] > 0:
+                    st.button("⬅️ Précédent", on_click=prev_section)
+            
+            with col3:
+                if st.session_state['current_section_index'] < len(visible_sections) - 1:
+                    # Bouton "Suivant" avec validation
+                    if st.button("Suivant ➡️"):
+                        if is_valid:
+                            next_section()
+                            st.rerun()
+                        else:
+                            # Afficher les erreurs de validation
+                            st.markdown('<div class="validation-error">', unsafe_allow_html=True)
+                            st.error("⚠️ Veuillez répondre à toutes les questions obligatoires (*) avant de continuer :")
+                            for missing in missing_questions:
+                                st.write(f"• {missing}")
+                            st.markdown('</div>', unsafe_allow_html=True)
+                else:
+                    # Bouton "Soumettre" avec validation
+                    if st.button("✅ Soumettre le rapport"):
+                        if is_valid:
+                            st.success("✅ Formulaire terminé avec succès !")
+                            st.write("**Projet :**", st.session_state['selected_project'])
+                            st.write("**Informations du projet :**")
+                            st.json(st.session_state['project_data'])
+                            st.write("**Récapitulatif des réponses :**")
+                            display_data = {k: str(v) for k, v in st.session_state['form_answers'].items()}
+                            st.json(display_data)
+                        else:
+                            st.markdown('<div class="validation-error">', unsafe_allow_html=True)
+                            st.error("⚠️ Veuillez répondre à toutes les questions obligatoires (*) avant de soumettre :")
+                            for missing in missing_questions:
+                                st.write(f"• {missing}")
+                            st.markdown('</div>', unsafe_allow_html=True)
