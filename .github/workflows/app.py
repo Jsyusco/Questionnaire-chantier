@@ -1,44 +1,54 @@
 import streamlit as st
 import pandas as pd
+import uuid
 
 # --- CONFIGURATION ET STYLE ---
-st.set_page_config(page_title="Formulaire Dynamique", layout="centered")
+st.set_page_config(page_title="Formulaire Dynamique - Mode Boucle", layout="centered")
 
 st.markdown("""
 <style>
-.stApp { background-color: #121212; } 
-.form-container { background-color: #1e1e1e; padding: 30px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5); margin-bottom: 20px; color: #e0e0e0; }
-.question-block { margin-bottom: 20px; padding: 15px; border-left: 4px solid #4285F4; background-color: #2d2d2d; border-radius: 4px; }
-.description { font-size: 0.85em; color: #aaaaaa; margin-top: 5px; margin-bottom: 10px; font-style: italic; }
-.mandatory { color: #F4B400; font-weight: bold; }
-.validation-error { color: #ff6b6b; background-color: #3d1f1f; padding: 10px; border-radius: 5px; border-left: 4px solid #ff6b6b; margin: 10px 0; }
-h1, h2, h3 { color: #ffffff; }
-.stButton > button { width: 100%; border-radius: 8px; background-color: #4285F4; color: white; border: none; font-weight: bold; }
-.stButton > button:hover { background-color: #5b9ffc; color: white; }
-.stProgress > div > div > div > div { background-color: #4285F4; }
-.stTextInput label, .stSelectbox label, .stNumberInput label { color: #e0e0e0; }
+    .stApp { background-color: #121212; color: #e0e0e0; } 
+    .main-header { background-color: #1e1e1e; padding: 20px; border-radius: 10px; margin-bottom: 20px; text-align: center; border-bottom: 3px solid #4285F4; }
+    .block-container { max-width: 800px; }
+    
+    /* Styles des blocs */
+    .phase-block { background-color: #1e1e1e; padding: 25px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #333; }
+    .question-card { background-color: #262626; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #4285F4; }
+    
+    /* Textes */
+    h1, h2, h3 { color: #ffffff !important; }
+    .description { font-size: 0.9em; color: #aaaaaa; font-style: italic; margin-bottom: 10px; }
+    .mandatory { color: #F4B400; font-weight: bold; margin-left: 5px; }
+    
+    /* Messages de validation */
+    .success-box { background-color: #1e4620; padding: 15px; border-radius: 8px; border-left: 5px solid #4caf50; color: #fff; margin: 10px 0; }
+    .error-box { background-color: #3d1f1f; padding: 15px; border-radius: 8px; border-left: 5px solid #ff6b6b; color: #ffdad9; margin: 10px 0; }
+    
+    /* Boutons */
+    .stButton > button { border-radius: 8px; font-weight: bold; padding: 0.5rem 1rem; }
+    div[data-testid="stButton"] > button { width: 100%; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- CHARGEMENT DES DONNÉES ---
+# --- FONCTIONS DE CHARGEMENT ---
 @st.cache_data
 def load_form_structure(file):
     try:
         df = pd.read_excel(file, sheet_name='Questions', engine='openpyxl')
         df.columns = df.columns.str.strip()
-        df = df.rename(columns={
-            'Conditon value': 'Condition value',
-            'Conditon on': 'Condition on',
-            'condition value': 'Condition value',
-            'Condition Value': 'Condition value'
-        })
+        # Standardisation des colonnes
+        rename_map = {k: 'Condition value' for k in ['Conditon value', 'condition value', 'Condition Value']}
+        rename_map.update({k: 'Condition on' for k in ['Conditon on', 'condition on']})
+        df = df.rename(columns=rename_map)
+        
+        # Remplissage des vides
         df['options'] = df['options'].fillna('')
         df['Description'] = df['Description'].fillna('')
         df['Condition value'] = df['Condition value'].fillna('')
         df['Condition on'] = df['Condition on'].fillna(0)
         return df
     except Exception as e:
-        st.error(f"Erreur technique lors de la lecture : {e}")
+        st.error(f"Erreur technique lors de la lecture du fichier structure : {e}")
         return None
 
 @st.cache_data
@@ -48,278 +58,289 @@ def load_site_data(file):
         df_site.columns = df_site.columns.str.strip()
         return df_site
     except Exception as e:
-        st.error(f"Erreur lors de la lecture de la feuille 'site' : {e}")
+        st.error(f"Erreur lors de la lecture de la feuille 'Site' : {e}")
         return None
 
-# --- ÉTAT ---
-if 'form_answers' not in st.session_state:
-    st.session_state['form_answers'] = {}
-if 'current_section_index' not in st.session_state:
-    st.session_state['current_section_index'] = 0
-if 'selected_project' not in st.session_state:
-    st.session_state['selected_project'] = None
-if 'project_data' not in st.session_state:
-    st.session_state['project_data'] = {}
-if 'current_phase' not in st.session_state:
-    st.session_state['current_phase'] = 1
+# --- GESTION DE L'ÉTAT (SESSION STATE) ---
+def init_session_state():
+    defaults = {
+        'step': 'UPLOAD',              # UPLOAD, PROJECT, LOOP_DECISION, FILL_PHASE, FINISHED
+        'project_data': None,          # Données du projet sélectionné
+        'collected_data': [],          # Liste des phases validées (dictionnaires)
+        'current_phase_temp': {},      # Réponses temporaires de la phase en cours
+        'current_phase_name': None,    # Nom de la phase en cours (Section)
+        'iteration_id': str(uuid.uuid4()) # ID unique pour les widgets pour éviter les conflits
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
 
-# --- FONCTIONS LOGIQUES ---
+init_session_state()
+
+# --- LOGIQUE MÉTIER ---
+
 def check_condition(row, answers):
+    """Vérifie si une question doit être affichée selon les réponses précédentes."""
     try:
-        is_conditional = int(row['Condition on']) == 1
-    except:
-        is_conditional = False
-    if not is_conditional:
-        return True
-    condition_rule = str(row['Condition value']).strip()
-    if not condition_rule:
-        return True
-    try:
+        if int(row.get('Condition on', 0)) != 1:
+            return True
+        
+        condition_rule = str(row.get('Condition value', '')).strip()
+        if not condition_rule:
+            return True
+            
         if '=' in condition_rule:
             target_id_str, target_value = condition_rule.split('=', 1)
             target_id = int(target_id_str.strip())
             target_value = target_value.strip()
+            
+            # Récupère la réponse à la question conditionnelle
             user_answer = answers.get(target_id)
             return str(user_answer) == str(target_value)
-        else:
-            return True
-    except:
         return True
+    except:
+        return True # En cas d'erreur de logique, on affiche par défaut
 
-def check_section_condition(section_df, answers):
-    for _, row in section_df.iterrows():
-        if check_condition(row, answers):
-            return True
-    return False
-
-def validate_mandatory_questions(section_df, answers):
+def validate_phase(df_questions, phase_name, answers):
+    """Valide si toutes les questions obligatoires de la phase ont une réponse."""
     missing = []
-    for _, row in section_df.iterrows():
+    # On filtre uniquement les questions de la phase active
+    phase_rows = df_questions[df_questions['section'] == phase_name]
+    
+    for _, row in phase_rows.iterrows():
+        # Si la question n'est pas affichée (condition non remplie), on l'ignore
         if not check_condition(row, answers):
             continue
-        q_id = int(row['id'])
-        q_mandatory = str(row['obligatoire']).lower() == 'oui'
-        if q_mandatory:
-            answer = answers.get(q_id)
-            if answer is None or answer == "" or answer == 0:
-                missing.append(f"Question {q_id}: {row['question']}")
+            
+        is_mandatory = str(row['obligatoire']).strip().lower() == 'oui'
+        if is_mandatory:
+            q_id = int(row['id'])
+            val = answers.get(q_id)
+            # Vérification simple : ni None, ni vide, ni 0 (sauf si 0 est une réponse valide explicitement)
+            if val is None or val == "" or val == []:
+                missing.append(f"Question {q_id} : {row['question']}")
+                
     return len(missing) == 0, missing
 
-def render_field(row, answers):
+# --- COMPOSANTS UI ---
+
+def render_question(row, answers, key_suffix):
+    """Affiche un widget pour une question donnée."""
     q_id = int(row['id'])
     q_text = row['question']
     q_type = str(row['type']).strip().lower()
     q_desc = row['Description']
     q_mandatory = str(row['obligatoire']).lower() == 'oui'
     q_options = str(row['options']).split(',') if row['options'] else []
-
-    display_question = f"{q_id}. {q_text}" + (' <span class="mandatory">*</span>' if q_mandatory else "")
-    widget_key = f"q_{q_id}" 
+    
+    label_html = f"<strong>{q_id}. {q_text}</strong>" + (' <span class="mandatory">*</span>' if q_mandatory else "")
+    widget_key = f"q_{q_id}_{key_suffix}"
+    
+    # Récupération valeur actuelle ou défaut
     current_val = answers.get(q_id)
-    val = None
+    
+    st.markdown(f'<div class="question-card"><div>{label_html}</div>', unsafe_allow_html=True)
+    if q_desc:
+        st.markdown(f'<div class="description">{q_desc}</div>', unsafe_allow_html=True)
 
-    with st.container():
-        st.markdown(f"**{display_question}**", unsafe_allow_html=True)
-        if q_desc:
-            st.markdown(f'<p class="description">{q_desc}</p>', unsafe_allow_html=True)
+    val = current_val
 
-        if q_type == 'text':
-            val = st.text_input(" ", value=current_val if current_val else "", key=widget_key, label_visibility="collapsed")
-        elif q_type == 'select':
-            index = 0
-            clean_options = [opt.strip() for opt in q_options]
-            if "" not in clean_options:
-                clean_options.insert(0, "")
-            if current_val in clean_options:
-                index = clean_options.index(current_val)
-            val = st.selectbox(" ", clean_options, index=index, key=widget_key, label_visibility="collapsed")
-        elif q_type == 'number':
-            val = st.number_input(" ", value=int(current_val) if current_val else 0, key=widget_key, label_visibility="collapsed")
-        elif q_type == 'photo':
-            val = st.file_uploader(" ", type=['png', 'jpg', 'jpeg'], key=widget_key, label_visibility="collapsed")
-            if val is not None:
-                st.success(f"Image chargée : {val.name}")
-            elif current_val is not None:
-                st.info("Image déjà chargée précédemment.") 
+    if q_type == 'text':
+        val = st.text_input("Réponse", value=current_val if current_val else "", key=widget_key, label_visibility="collapsed")
+    
+    elif q_type == 'select':
+        clean_opts = [opt.strip() for opt in q_options]
+        if "" not in clean_opts: clean_opts.insert(0, "")
+        
+        idx = 0
+        if current_val in clean_opts:
+            idx = clean_opts.index(current_val)
+        val = st.selectbox("Sélection", clean_opts, index=idx, key=widget_key, label_visibility="collapsed")
+        
+    elif q_type == 'number':
+        val = st.number_input("Nombre", value=float(current_val) if current_val else 0.0, key=widget_key, label_visibility="collapsed")
+        
+    elif q_type == 'photo':
+        val = st.file_uploader("Image", type=['png', 'jpg', 'jpeg'], key=widget_key, label_visibility="collapsed")
+        if val:
+            st.success(f"Image chargée : {val.name}")
+            # Note : Pour stocker l'objet fichier dans answers, Streamlit le gère, mais attention à la sérialisation plus tard
+        elif current_val:
+            st.info("Image conservée de la session précédente.")
 
-        if val is not None:
-            answers[q_id] = val
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Mise à jour immédiate du dictionnaire temporaire
+    if val is not None:
+        answers[q_id] = val
 
-def find_phase_selection_section(df):
-    phase_questions = df[df['question'].str.contains("phase", case=False, na=False)]
-    if len(phase_questions) == 0:
-        return None
-    return phase_questions.iloc[0]['section']
+# --- MAIN APP FLOW ---
 
-def get_current_phase_key():
-    return f"phase_{st.session_state['current_phase']}"
+st.markdown('<div class="main-header"><h1>📝 Audit & Formulaire Dynamique</h1></div>', unsafe_allow_html=True)
 
-def get_current_phase_answers():
-    key = get_current_phase_key()
-    if key not in st.session_state['form_answers']:
-        st.session_state['form_answers'][key] = {}
-    return st.session_state['form_answers'][key]
+# 1. CHARGEMENT
+if st.session_state['step'] == 'UPLOAD':
+    uploaded_file = st.file_uploader("📂 Chargez le fichier de configuration (Excel)", type=["xlsx"])
+    if uploaded_file:
+        df_struct = load_form_structure(uploaded_file)
+        df_site = load_site_data(uploaded_file)
+        
+        if df_struct is not None and df_site is not None:
+            st.session_state['df_struct'] = df_struct
+            st.session_state['df_site'] = df_site
+            st.session_state['step'] = 'PROJECT'
+            st.rerun()
 
-def next_section():
-    st.session_state['current_section_index'] += 1
+# 2. SÉLECTION PROJET
+elif st.session_state['step'] == 'PROJECT':
+    df_site = st.session_state['df_site']
+    st.markdown("### 🏗️ Sélection du Chantier")
+    
+    projects = [""] + df_site['Intitulé'].dropna().unique().tolist()
+    selected_proj = st.selectbox("Rechercher un projet", projects)
+    
+    if selected_proj:
+        row = df_site[df_site['Intitulé'] == selected_proj].iloc[0]
+        st.info(f"Projet sélectionné : {selected_proj} (Code: {row.get('Code Site', 'N/A')})")
+        
+        if st.button("✅ Démarrer l'audit"):
+            # On stocke les infos du projet
+            st.session_state['project_data'] = row.to_dict()
+            st.session_state['step'] = 'LOOP_DECISION'
+            st.rerun()
 
-def prev_section():
-    st.session_state['current_section_index'] -= 1
+# 3. LA BOUCLE (LOGIQUE PRINCIPALE)
+elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
+    
+    # HEADER PROJET (Toujours visible)
+    with st.expander(f"📍 Projet : {st.session_state['project_data'].get('Intitulé')}", expanded=False):
+        st.json(st.session_state['project_data'])
 
-# --- MAIN APP ---
-st.markdown('<div class="form-container"><h1>📝 Formulaire de Travaux</h1></div>', unsafe_allow_html=True)
-uploaded_file = st.file_uploader("Chargez le fichier Excel de structure (Questions)", type=["xlsx"])
-
-if uploaded_file is not None:
-    df = load_form_structure(uploaded_file)
-    df_site = load_site_data(uploaded_file)
-
-    if df is not None and df_site is not None:
-        if st.session_state['selected_project'] is None:
-            st.markdown("### 🏗️ Sélection du Projet")
-            if 'Intitulé' in df_site.columns:
-                project_options = [""] + df_site['Intitulé'].dropna().tolist()
-                selected = st.selectbox("Choisissez l'intitulé du projet", project_options, key="project_selector")
-                if selected and selected != "":
-                    project_row = df_site[df_site['Intitulé'] == selected].iloc[0]
-                    display_mapping = {
-                        'L [Plan de Déploiement]': 'PDC L',
-                        'R [Plan de Déploiement]': 'PDC R',
-                        'UR [Plan de Déploiement]': 'PDC UR',
-                        'Pré L [Plan de Déploiement]': 'PDC pré-équipés L',
-                        'Pré R [Plan de Déploiement]': 'PDC pré-équipés R',
-                        'Pré UR [Plan de Déploiement]': 'PDC pré-équipés UR',
-                        'Fournisseur Bornes AC [Bornes]': 'Fournisseur Bornes AC',
-                        'Fournisseur Bornes DC [Bornes]': 'Fournisseur Bornes DC'
-                    }
-                    st.markdown("---")
-                    st.markdown("#### 📊 Informations du Projet")
-                    cols = st.columns(3)
-                    i = 0
-                    for col_name, display_name in display_mapping.items():
-                        if col_name in project_row.index:
-                            value = project_row[col_name]
-                            with cols[i % 3]:
-                                st.write(f"**{display_name}:** {value}")
-                            i += 1
-                    st.markdown("---")
-                    if st.button("✅ Valider et commencer le formulaire", key="validate_project"):
-                        st.session_state['selected_project'] = selected
-                        st.session_state['project_data'] = {display_mapping.get(col, col): project_row[col] for col in display_mapping if col in project_row.index}
-                        st.rerun()
-                else:
-                    st.info("Veuillez choisir un projet pour continuer.")
-            else:
-                st.error("La colonne 'Intitulé' n'a pas été trouvée dans la feuille 'site'.")
+    # -- A. DÉCISION --
+    if st.session_state['step'] == 'LOOP_DECISION':
+        st.markdown('<div class="phase-block">', unsafe_allow_html=True)
+        st.markdown("### 🔄 Gestion des Phases")
+        
+        # Affichage de l'historique
+        if st.session_state['collected_data']:
+            st.write("Phases déjà complétées :")
+            for idx, item in enumerate(st.session_state['collected_data']):
+                st.success(f"Phase {idx+1}: {item['phase_name']} ({len(item['answers'])} réponses)")
         else:
-            st.markdown('<div class="form-container">', unsafe_allow_html=True)
-            st.markdown(f"### 🏗️ Projet : {st.session_state['selected_project']}")
-            with st.expander("📊 Voir les informations du projet"):
-                cols_expander = st.columns(3)
-                i_expander = 0
-                for key, value in st.session_state['project_data'].items():
-                    with cols_expander[i_expander % 3]:
-                        st.write(f"**{key}:** {value}")
-                    i_expander += 1
-            if st.button("🔄 Changer de projet"):
-                st.session_state['selected_project'] = None
-                st.session_state['current_section_index'] = 0
-                st.session_state['form_answers'] = {}
-                st.session_state['current_phase'] = 1
+            st.info("Aucune phase saisie pour le moment.")
+
+        st.markdown("---")
+        st.markdown("#### Souhaitez-vous déclarer une nouvelle phase ?")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("➕ OUI, Ajouter une phase"):
+                st.session_state['step'] = 'FILL_PHASE'
+                # Reset des variables temporaires pour la nouvelle phase
+                st.session_state['current_phase_temp'] = {} 
+                st.session_state['current_phase_name'] = None
+                # Générer un nouvel ID pour forcer le refresh des widgets
+                st.session_state['iteration_id'] = str(uuid.uuid4())
                 st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
+        with col2:
+            if st.button("🏁 NON, Terminer le formulaire"):
+                st.session_state['step'] = 'FINISHED'
+                st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
-            all_sections = df['section'].unique().tolist()
-            visible_sections = [sec for sec in all_sections if check_section_condition(df[df['section']==sec], get_current_phase_answers())]
-            if not visible_sections and all_sections:
-                visible_sections = [all_sections[0]]
-            if st.session_state['current_section_index'] >= len(visible_sections):
-                st.session_state['current_section_index'] = len(visible_sections) - 1
-            current_section_name = visible_sections[st.session_state['current_section_index']]
-            progress = (st.session_state['current_section_index'] + 1) / len(visible_sections)
-            st.progress(progress)
-            st.caption(f"Section {st.session_state['current_section_index'] + 1}/{len(visible_sections)} : **{current_section_name}**")
-
-            st.markdown(f"## {current_section_name}")
-            section_questions = df[df['section'] == current_section_name]
-            visible_questions_count = 0
-            current_phase_answers = get_current_phase_answers()
-            for index, row in section_questions.iterrows():
-                if check_condition(row, current_phase_answers):
-                    render_field(row, current_phase_answers)
-                    visible_questions_count += 1
-            if visible_questions_count == 0:
-                st.info("Aucune question visible pour cette section selon vos choix précédents.")
-
-            # Validation obligatoire
-            is_valid, missing_questions = validate_mandatory_questions(section_questions, current_phase_answers)
-
-            # --- Déclaration nouvelle phase ---
+    # -- B. REMPLISSAGE --
+    elif st.session_state['step'] == 'FILL_PHASE':
+        df = st.session_state['df_struct']
+        
+        st.markdown(f'<div class="phase-block">', unsafe_allow_html=True)
+        
+        # Choix de la phase (basé sur la colonne 'section' unique du fichier Excel)
+        available_phases = df['section'].unique().tolist()
+        
+        # Si on n'a pas encore choisi la phase
+        if not st.session_state['current_phase_name']:
+             st.markdown("### 📑 Sélection de la phase")
+             phase_choice = st.selectbox("Quelle phase souhaitez-vous renseigner ?", [""] + available_phases)
+             if phase_choice:
+                 st.session_state['current_phase_name'] = phase_choice
+                 st.rerun()
+             if st.button("⬅️ Annuler"):
+                 st.session_state['step'] = 'LOOP_DECISION'
+                 st.rerun()
+                 
+        else:
+            # Phase choisie, on affiche les questions
+            current_phase = st.session_state['current_phase_name']
+            st.markdown(f"### 📝 Remplissage : {current_phase}")
+            
+            if st.button("🔄 Changer de phase"):
+                st.session_state['current_phase_name'] = None
+                st.session_state['current_phase_temp'] = {}
+                st.rerun()
+            
             st.markdown("---")
-            st.markdown("### ➕ Déclaration de nouvelle phase")
-            declare_new_phase = st.radio(
-                "Voulez-vous déclarer une nouvelle phase ?",
-                ["Non", "Oui"],
-                horizontal=True,
-                key=f"declare_phase_phase{st.session_state['current_phase']}"
-            )
+            
+            # Filtrer les questions de cette section
+            section_questions = df[df['section'] == current_phase]
+            
+            # Affichage dynamique des questions
+            visible_count = 0
+            for _, row in section_questions.iterrows():
+                # On vérifie la condition (basée sur les réponses actuelles stockées dans temp)
+                if check_condition(row, st.session_state['current_phase_temp']):
+                    render_question(row, st.session_state['current_phase_temp'], st.session_state['iteration_id'])
+                    visible_count += 1
+            
+            if visible_count == 0:
+                st.warning("Aucune question applicable pour cette phase.")
 
-            if declare_new_phase == "Oui":
-                is_valid_phase, missing_phase = True, []
-                for sec in visible_sections:
-                    sec_df = df[df['section'] == sec]
-                    valid_sec, missing_sec = validate_mandatory_questions(sec_df, current_phase_answers)
-                    if not valid_sec:
-                        is_valid_phase = False
-                        missing_phase.extend(missing_sec)
-                if is_valid_phase:
-                    if st.button("✅ Démarrer une nouvelle phase"):
-                        st.session_state['current_phase'] += 1
-                        new_phase_key = get_current_phase_key()
-                        st.session_state['form_answers'][new_phase_key] = {}
-                        target_section = find_phase_selection_section(df)
-                        visible_sections = [sec for sec in df['section'].unique()
-                                            if check_section_condition(df[df['section']==sec], {})]
-                        if target_section and target_section in visible_sections:
-                            st.session_state['current_section_index'] = visible_sections.index(target_section)
-                        else:
-                            st.session_state['current_section_index'] = 0
+            st.markdown("---")
+            
+            # BOUTONS D'ACTION
+            c1, c2 = st.columns([1, 2])
+            with c1:
+                if st.button("❌ Annuler cette phase"):
+                    st.session_state['step'] = 'LOOP_DECISION'
+                    st.rerun()
+            with c2:
+                if st.button("💾 Valider et Enregistrer la phase"):
+                    # Validation
+                    is_valid, errors = validate_phase(df, current_phase, st.session_state['current_phase_temp'])
+                    
+                    if is_valid:
+                        # Sauvegarde
+                        new_entry = {
+                            "phase_name": current_phase,
+                            "answers": st.session_state['current_phase_temp'].copy()
+                        }
+                        st.session_state['collected_data'].append(new_entry)
+                        
+                        st.success("Phase enregistrée avec succès !")
+                        # Retour à la boucle
+                        st.session_state['step'] = 'LOOP_DECISION'
                         st.rerun()
-                else:
-                    st.markdown('<div class="validation-error">', unsafe_allow_html=True)
-                    st.error("⚠️ Impossible de commencer une nouvelle phase : des questions obligatoires sont manquantes dans la phase courante.")
-                    for m in missing_phase:
-                        st.write(f"• {m}")
-                    st.markdown('</div>', unsafe_allow_html=True)
+                    else:
+                        st.markdown('<div class="error-box"><b>⚠️ Impossible de valider :</b><br>' + 
+                                    '<br>'.join([f"- {e}" for e in errors]) + '</div>', 
+                                    unsafe_allow_html=True)
+            
+        st.markdown('</div>', unsafe_allow_html=True)
 
-            # Navigation
-            col1, col2, col3 = st.columns([1,2,1])
-            with col1:
-                if st.session_state['current_section_index'] > 0:
-                    st.button("⬅️ Précédent", on_click=prev_section)
-            with col3:
-                if st.session_state['current_section_index'] < len(visible_sections)-1:
-                    if st.button("Suivant ➡️"):
-                        if is_valid:
-                            next_section()
-                            st.rerun()
-                        else:
-                            st.markdown('<div class="validation-error">', unsafe_allow_html=True)
-                            st.error("⚠️ Veuillez répondre à toutes les questions obligatoires (*) avant de continuer :")
-                            for missing in missing_questions:
-                                st.write(f"• {missing}")
-                            st.markdown('</div>', unsafe_allow_html=True)
-                else:
-                    if st.button("✅ Soumettre le rapport"):
-                        if is_valid:
-                            st.success("✅ Formulaire terminé avec succès et prêt à être soumis !")
-                            st.write("**Projet :**", st.session_state['selected_project'])
-                            st.write("**Récapitulatif des réponses de la phase courante :**")
-                            st.json(current_phase_answers)
-                            st.info("Vous pouvez maintenant traiter ces données (enregistrement en base de données, exportation Excel, etc.)")
-                        else:
-                            st.markdown('<div class="validation-error">', unsafe_allow_html=True)
-                            st.error("⚠️ Veuillez répondre à toutes les questions obligatoires (*) avant de soumettre :")
-                            for missing in missing_questions:
-                                st.write(f"• {missing}")
-                            st.markdown('</div>', unsafe_allow_html=True)
+# 4. FIN
+elif st.session_state['step'] == 'FINISHED':
+    st.balloons()
+    st.markdown('<div class="phase-block" style="text-align:center;">', unsafe_allow_html=True)
+    st.markdown("## 🎉 Formulaire Terminé")
+    st.write(f"Projet : **{st.session_state['project_data'].get('Intitulé')}**")
+    st.write(f"Nombre de phases renseignées : **{len(st.session_state['collected_data'])}**")
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Affichage des données brutes pour vérification
+    for i, phase in enumerate(st.session_state['collected_data']):
+        with st.expander(f"Phase {i+1} : {phase['phase_name']}"):
+            st.write(phase['answers'])
+            
+    # Bouton pour tout recommencer
+    if st.button("🔄 Commencer un nouveau projet"):
+        st.session_state.clear()
+        st.rerun()
