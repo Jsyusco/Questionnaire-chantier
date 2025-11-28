@@ -214,7 +214,7 @@ def render_field(row):
         if q_desc:
             st.markdown(f'<p class="description">{q_desc}</p>', unsafe_allow_html=True)
             
-        
+        st.markdown('</div>', unsafe_allow_html=True)
 
         # Mise à jour immédiate de la réponse dans le dictionnaire principal
         # Note : Pour les selectbox/text, la mise à jour est auto via session_state[key], 
