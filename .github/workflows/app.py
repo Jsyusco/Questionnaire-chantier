@@ -32,7 +32,7 @@ st.markdown("""
     .description {
         font-size: 0.85em;
         color: #aaaaaa;
-        /* Règle l'espacement pour être juste sous le label mais au-dessus de l'input */
+        /* Ajustement des marges pour la position entre le label et l'input */
         margin-top: -10px; 
         margin-bottom: 10px;
         font-style: italic;
@@ -204,7 +204,7 @@ def validate_mandatory_questions(section_df, answers):
     return len(missing) == 0, missing
 
 def render_field(row):
-    """Génère le widget Streamlit approprié selon le type. Modifié pour afficher la description avant le champ."""
+    """Génère le widget Streamlit approprié selon le type. Modifié pour afficher la description AVANT le champ."""
     q_id = int(row['id'])
     q_text = row['question']
     q_type = str(row['type']).strip().lower()
@@ -216,14 +216,17 @@ def render_field(row):
     label = f"{q_id}. {q_text}" + (" *" if q_mandatory else "")
     widget_key = f"q_{q_id}" 
     current_val = st.session_state['form_answers'].get(q_id)
+    val = None # Initialiser val
 
     with st.container():
         st.markdown('<div class="question-block">', unsafe_allow_html=True) # Début du bloc Question
         
-        # --- AFFICHAGE DE LA DESCRIPTION (Au-dessus du champ) ---
+        # --- 1. AFFICHAGE DE LA DESCRIPTION (Entre le label et l'input) ---
+        # Le label est affiché par le widget Streamlit ci-dessous.
         if q_desc:
             st.markdown(f'<p class="description">{q_desc}</p>', unsafe_allow_html=True)
             
+        # --- 2. AFFICHAGE DU CHAMP DE SAISIE ---
         if q_type == 'text':
             val = st.text_input(label, value=current_val if current_val else "", key=widget_key)
             
@@ -239,7 +242,6 @@ def render_field(row):
             val = st.selectbox(label, clean_options, index=index, key=widget_key)
             
         elif q_type == 'number':
-            # Assure que le label est affiché correctement
             val = st.number_input(label, value=int(current_val) if current_val else 0, key=widget_key)
             
         elif q_type == 'photo':
@@ -247,7 +249,6 @@ def render_field(row):
             if val is not None:
                 st.success(f"Image chargée : {val.name}")
             elif current_val is not None:
-                # Si l'utilisateur n'a pas chargé un nouveau fichier mais qu'une réponse existe déjà
                 st.info("Image déjà chargée précédemment.") 
         
         st.markdown('</div>', unsafe_allow_html=True) # Fin du bloc Question
