@@ -179,9 +179,7 @@ def render_field(row):
     current_val = st.session_state['form_answers'].get(q_id)
 
     with st.container():
-        st.markdown(f'<div class="question-block">', unsafe_allow_html=True)
-        
-        val = None
+
         
         if q_type == 'text':
             val = st.text_input(label, value=current_val if current_val else "", key=widget_key)
