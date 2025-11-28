@@ -81,7 +81,7 @@ st.markdown("""
     }
 
     /* Style pour les inputs/select */
-    .stTextInput label, .stSelectbox label, .stNumberInput label {
+    .stTextInput label, .stSelectbox label, .stNumberInput label, .stRadio label {
         color: #e0e0e0;
     }
     
@@ -198,7 +198,8 @@ def validate_mandatory_questions(section_df, answers):
         if q_mandatory:
             answer = answers.get(q_id)
             # Vérifier si la réponse est vide ou non valide
-            if answer is None or answer == "" or answer == 0:
+            # Pour une liste (photos multiples), on vérifie si la liste est vide
+            if answer is None or answer == "" or answer == 0 or (isinstance(answer, list) and len(answer) == 0):
                 missing.append(f"Question {q_id}: {row['question']}")
     
     return len(missing) == 0, missing
@@ -252,17 +253,29 @@ def render_field(row):
             val = st.number_input(" ", value=int(current_val) if current_val else 0, key=widget_key, label_visibility="collapsed")
             
         elif q_type == 'photo':
-            # Pour le file_uploader, on utilise quand même le label_visibility pour la cohérence
-            val = st.file_uploader(" ", type=['png', 'jpg', 'jpeg'], key=widget_key, label_visibility="collapsed")
-            if val is not None:
-                st.success(f"Image chargée : {val.name}")
-            elif current_val is not None:
-                st.info("Image déjà chargée précédemment.") 
+            # --- MODIF 1 : Support pour MULTIPLES PHOTOS ---
+            val = st.file_uploader(
+                " ", 
+                type=['png', 'jpg', 'jpeg'], 
+                key=widget_key, 
+                label_visibility="collapsed",
+                accept_multiple_files=True  # Autorise plusieurs fichiers
+            )
+            
+            # Gestion de l'affichage et de la sauvegarde
+            if val:
+                # Si l'utilisateur vient d'uploader des fichiers (val est une liste)
+                st.success(f"{len(val)} image(s) chargée(s).")
+            elif current_val:
+                # Si des fichiers sont déjà dans le state mais pas dans le widget actif (au reload)
+                count = len(current_val) if isinstance(current_val, list) else 1
+                st.info(f"{count} image(s) déjà enregistrée(s) précédemment.") 
         
         st.markdown('</div>', unsafe_allow_html=True) # Fin du bloc Question
         
         # Enregistrement de la réponse
         if val is not None:
+            # Pour les photos, val est maintenant une liste (ou vide si retiré)
             st.session_state['form_answers'][q_id] = val
 
 # --- NAVIGATION ---
@@ -325,7 +338,6 @@ if uploaded_file is not None:
                             value = project_row[col_name]
                             project_info[display_name] = value
 
-                    # --- DÉBUT DE LA MODIFICATION POUR LES 3 COLONNES ---
                     cols = st.columns(3)
                     
                     # Utiliser un compteur pour distribuer les éléments
@@ -336,7 +348,6 @@ if uploaded_file is not None:
                             st.write(f"**{display_name}:** {value}")
                         i += 1
                     
-                    # --- FIN DE LA MODIFICATION POUR LES 3 COLONNES ---
                     
                     st.markdown("---")
                     
@@ -358,16 +369,14 @@ if uploaded_file is not None:
             st.markdown('<div class="form-container">', unsafe_allow_html=True)
             st.markdown(f"### 🏗️ Projet : {st.session_state['selected_project']}")
             
-            # Affichage des infos dans l'expander (laisse le code original en liste pour cet expander)
+            # Affichage des infos dans l'expander
             with st.expander("📊 Voir les informations du projet"):
-                # --- MODIFICATION DE L'EXPANDER POUR AFFICHER EN 3 COLONNES AUSSI ---
                 cols_expander = st.columns(3)
                 i_expander = 0
                 for key, value in st.session_state['project_data'].items():
-                     with cols_expander[i_expander % 3]:
-                          st.write(f"**{key}:** {value}")
-                     i_expander += 1
-                # --- FIN DE LA MODIFICATION DANS L'EXPANDER ---
+                      with cols_expander[i_expander % 3]:
+                           st.write(f"**{key}:** {value}")
+                      i_expander += 1
             
             if st.button("🔄 Changer de projet"):
                 st.session_state['selected_project'] = None
@@ -390,10 +399,10 @@ if uploaded_file is not None:
             # Si aucune section n'est visible, afficher la première par défaut
             if not visible_sections:
                 if all_sections:
-                     visible_sections = [all_sections[0]]
+                      visible_sections = [all_sections[0]]
                 else:
-                     st.warning("Le fichier Excel ne contient aucune section de question.")
-                     st.stop()
+                      st.warning("Le fichier Excel ne contient aucune section de question.")
+                      st.stop()
             
             # Sécurité index
             if st.session_state['current_section_index'] >= len(visible_sections):
@@ -420,6 +429,25 @@ if uploaded_file is not None:
             
             if visible_questions_count == 0:
                 st.info("Aucune question visible pour cette section selon vos choix précédents.")
+
+            # --- MODIF 2 : QUESTION DE TRANSITION A LA FIN DE CHAQUE SECTION ---
+            st.markdown("---")
+            st.markdown("### 🔄 5. Transition")
+            
+            # Utilisation d'une clé unique basée sur l'index de section pour éviter les conflits
+            transition_key = f"transition_{st.session_state['current_section_index']}"
+            
+            transition_val = st.radio(
+                "Avez-vous d'autres éléments à ajouter (nouvelle phase) ?",
+                options=["Non", "Oui"],
+                index=0,
+                key=transition_key,
+                horizontal=True
+            )
+            
+            if transition_val == "Oui":
+                st.warning("💡 **Recommandation :** Veuillez sélectionner la phase correspondante (ou compléter les nouveaux éléments) dans le questionnaire.")
+            # -------------------------------------------------------------------
 
             # --- VALIDATION DES QUESTIONS OBLIGATOIRES ---
             is_valid, missing_questions = validate_mandatory_questions(
@@ -455,7 +483,15 @@ if uploaded_file is not None:
                             st.success("✅ Formulaire terminé avec succès et prêt à être soumis !")
                             st.write("**Projet :**", st.session_state['selected_project'])
                             st.write("**Récapitulatif des réponses :**")
-                            display_data = {k: str(v) for k, v in st.session_state['form_answers'].items()}
+                            
+                            # Conversion propre des données pour affichage (notamment les listes de photos)
+                            display_data = {}
+                            for k, v in st.session_state['form_answers'].items():
+                                if isinstance(v, list):
+                                    display_data[k] = f"{len(v)} fichiers"
+                                else:
+                                    display_data[k] = str(v)
+                                    
                             st.json(display_data)
                             st.info("Vous pouvez maintenant traiter ces données (enregistrement en base de données, exportation Excel, etc.)")
 
