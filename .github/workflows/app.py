@@ -120,7 +120,7 @@ def load_form_structure(file):
 def load_site_data(file):
     """Charge les données de la feuille 'site' pour sélection du projet"""
     try:
-        df_site = pd.read_excel(file, sheet_name='site', engine='openpyxl')
+        df_site = pd.read_excel(file, sheet_name='Site', engine='openpyxl')
         df_site.columns = df_site.columns.str.strip()
         return df_site
     except Exception as e:
