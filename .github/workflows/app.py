@@ -153,7 +153,7 @@ def render_question(row, answers, key_suffix):
     current_val = answers.get(q_id)
     val = current_val
 
-    st.markdown(f'<div class="question-card"><div>{label_html}</div>', unsafe_allow_html=True)
+    
     if q_desc:
         st.markdown(f'<div class="description">{q_desc}</div>', unsafe_allow_html=True)
 
