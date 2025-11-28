@@ -225,7 +225,7 @@ elif st.session_state['step'] == 'IDENTIFICATION':
     
     ID_SECTION_NAME = df['section'].iloc[0]
     
-    st.markdown(f'<div class="phase-block">', unsafe_allow_html=True)
+   
     st.markdown(f"### 👤 Étape unique : {ID_SECTION_NAME}")
     st.info("Veuillez renseigner les informations d'identification une seule fois pour ce projet.")
 
