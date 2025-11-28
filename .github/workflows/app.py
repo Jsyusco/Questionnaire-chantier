@@ -263,7 +263,7 @@ elif st.session_state['step'] == 'IDENTIFICATION':
             st.markdown('<div class="error-box"><b>⚠️ Erreur de validation :</b><br>' +
                         '<br>'.join([f"- {e}" for e in errors]) + '</div>',
                         unsafe_allow_html=True)
-    
+            st.markdown('</div>', unsafe_allow_html=True)
 
 # 4. LA BOUCLE (LOGIQUE PRINCIPALE)
 elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
