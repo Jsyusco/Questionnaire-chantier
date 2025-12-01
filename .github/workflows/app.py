@@ -337,7 +337,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
     elif st.session_state['step'] == 'FILL_PHASE':
         df = st.session_state['df_struct']
         
-        st.markdown(f'<div class="phase-block">', unsafe_allow_html=True)
+        #st.markdown(f'<div class="phase-block">', unsafe_allow_html=True)
         
         # Détermination des sections à exclure (l'Identification et toute section nommée "phase" pour éviter les confusions)
         ID_SECTION_NAME = None
