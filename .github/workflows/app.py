@@ -248,9 +248,9 @@ elif st.session_state['step'] == 'PROJECT':
         if st.button("✅ Démarrer l'identification"):
             st.session_state['project_data'] = row.to_dict()
             st.session_state['step'] = 'IDENTIFICATION'
-           # st.session_state['current_phase_temp'] = {}
+            st.session_state['current_phase_temp'] = {}
             # Génère un nouvel UUID pour la première phase (Identification)
-            st.session_state['iteration_id'] = str(uuid.uuid4()) 
+            #st.session_state['iteration_id'] = str(uuid.uuid4()) 
             st.rerun()
 
 # 3. IDENTIFICATION (state: 'IDENTIFICATION')
