@@ -311,7 +311,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
         st.write("Phases et Identification déjà complétées :")
         for idx, item in enumerate(st.session_state['collected_data']):
             st.write(f"• **{item['phase_name']}** : {len(item['answers'])} réponses")
-        st.markdown("---")
+        
         st.json(st.session_state['project_data'])
 
     # --- A. DÉCISION (HUB) ---
