@@ -243,7 +243,7 @@ elif st.session_state['step'] == 'PROJECT':
     
     if selected_proj:
         row = df_site[df_site['Intitulé'] == selected_proj].iloc[0]
-        st.info(f"Projet sélectionné : {selected_proj} (Code: {row.get('Code Site', 'N/A')})")
+        st.info(f"Projet sélectionné : {selected_proj} ")
         
         if st.button("✅ Démarrer l'identification"):
             st.session_state['project_data'] = row.to_dict()
@@ -260,7 +260,7 @@ elif st.session_state['step'] == 'IDENTIFICATION':
     # Récupère le nom de la première section de l'Excel (considérée comme l'identification)
     ID_SECTION_NAME = df['section'].iloc[0]
     
-    # st.markdown(f'<div class="phase-block">', unsafe_allow_html=True)
+    st.markdown(f'<div class="phase-block">', unsafe_allow_html=True)
     st.markdown(f"### 👤 Étape unique : {ID_SECTION_NAME}")
 
     identification_questions = df[df['section'] == ID_SECTION_NAME]
