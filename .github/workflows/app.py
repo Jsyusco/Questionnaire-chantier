@@ -171,7 +171,7 @@ def render_question(row, answers, key_suffix):
     val = current_val
 
     # Affichage de la carte de question stylisée
-    st.markdown(f'<div class="question-card"><div>{label_html}</div>', unsafe_allow_html=True)
+    
     if q_desc:
         st.markdown(f'<div class="description">{q_desc}</div>', unsafe_allow_html=True)
 
