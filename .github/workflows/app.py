@@ -45,7 +45,7 @@ st.markdown("""
 def load_form_structure(file):
     try:
         df = pd.read_excel(file, sheet_name='Questions', engine='openpyxl')
-      # Lecture de la feuille 'Questions' (structure du formulaire)
+        # Lecture de la feuille 'Questions' (structure du formulaire)
         df = pd.read_excel(file, sheet_name='Questions', engine='openpyxl')
         df.columns = df.columns.str.strip() # Nettoie les noms de colonnes
         # Mapping pour gérer les variations de nom pour les colonnes de condition
