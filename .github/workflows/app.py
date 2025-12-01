@@ -7,153 +7,34 @@ import uuid # Utilisé pour générer des identifiants uniques (UUID), essentiel
 # Configure les paramètres de base de la page : titre d'onglet, et mise en page centrée.
 st.set_page_config(page_title="Formulaire Dynamique - Mode Boucle V3", layout="centered")
 
-# Injection de CSS pour personnaliser l'apparence (thème moderne et coloré).
+# Injection de CSS pour personnaliser l'apparence (thème sombre).
 st.markdown("""
 <style>
-    /* Fond général avec dégradé */
-    .stApp { 
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: #ffffff;
-    }
+    /* Fond général sombre */
+    .stApp { background-color: #121212; color: #e0e0e0; }
+    /* En-tête principal stylisé */
+    .main-header { background-color: #1e1e1e; padding: 20px; border-radius: 10px; margin-bottom: 20px; text-align: center; border-bottom: 3px solid #4285F4; }
+    /* Limite la largeur du contenu pour une meilleure lisibilité */
+    .block-container { max-width: 800px; }
     
-    /* Supprime l'espace blanc par défaut de Streamlit */
-    .block-container {
-        padding-top: 2rem !important;
-        padding-bottom: 2rem !important;
-        max-width: 900px;
-    }
-    
-    /* Cache le menu hamburger et le footer Streamlit */
-    #MainMenu, footer, header {visibility: hidden;}
-    
-    /* En-tête principal stylisé avec effet glassmorphism */
-    .main-header { 
-        background: rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(10px);
-        padding: 30px;
-        border-radius: 20px;
-        margin-bottom: 30px;
-        text-align: center;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
-    }
-    
-    .main-header h1 {
-        margin: 0;
-        font-size: 2.5em;
-        font-weight: 700;
-        background: linear-gradient(120deg, #ffffff, #e0e0ff);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-    }
-    
-    /* Styles des blocs de phase/section avec glassmorphism */
-    .phase-block { 
-        background: rgba(255, 255, 255, 0.15);
-        backdrop-filter: blur(10px);
-        padding: 30px;
-        border-radius: 20px;
-        margin-bottom: 25px;
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
-    }
-    
+    /* Styles des blocs de phase/section */
+    .phase-block { background-color: #1e1e1e; padding: 25px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #333; }
     /* Style pour chaque carte de question */
-    .question-card { 
-        background: rgba(255, 255, 255, 0.1);
-        padding: 20px;
-        border-radius: 15px;
-        margin-bottom: 20px;
-        border-left: 5px solid #ffd700;
-        transition: transform 0.2s ease;
-    }
-    
-    .question-card:hover {
-        transform: translateX(5px);
-    }
+    .question-card { background-color: transparent; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #4285F4; }
     
     /* Styles de texte */
-    h1, h2, h3 { color: #ffffff !important; text-shadow: 2px 2px 4px rgba(0,0,0,0.2); }
-    h2 { font-size: 1.8em !important; margin-bottom: 20px !important; }
-    h3 { font-size: 1.4em !important; }
-    
-    .description { 
-        font-size: 0.95em;
-        color: #e0e0e0;
-        font-style: italic;
-        margin-bottom: 12px;
-    }
-    
+    h1, h2, h3 { color: #ffffff !important; }
+    .description { font-size: 0.9em; color: #aaaaaa; font-style: italic; margin-bottom: 10px; }
     /* Style pour l'indicateur (*) de question obligatoire */
-    .mandatory { 
-        color: #ffd700;
-        font-weight: bold;
-        margin-left: 5px;
-        font-size: 1.2em;
-    }
+    .mandatory { color: #F4B400; font-weight: bold; margin-left: 5px; }
     
-    /* Messages de validation avec style moderne */
-    .success-box { 
-        background: rgba(76, 175, 80, 0.2);
-        padding: 20px;
-        border-radius: 15px;
-        border-left: 5px solid #4caf50;
-        color: #fff;
-        margin: 15px 0;
-        backdrop-filter: blur(10px);
-    }
+    /* Messages de validation personnalisés */
+    .success-box { background-color: #1e4620; padding: 15px; border-radius: 8px; border-left: 5px solid #4caf50; color: #fff; margin: 10px 0; }
+    .error-box { background-color: #3d1f1f; padding: 15px; border-radius: 8px; border-left: 5px solid #ff6b6b; color: #ffdad9; margin: 10px 0; }
     
-    .error-box { 
-        background: rgba(244, 67, 54, 0.2);
-        padding: 20px;
-        border-radius: 15px;
-        border-left: 5px solid #f44336;
-        color: #fff;
-        margin: 15px 0;
-        backdrop-filter: blur(10px);
-    }
-    
-    /* Styles des boutons avec effet moderne */
-    .stButton > button { 
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border-radius: 12px;
-        font-weight: bold;
-        padding: 0.75rem 1.5rem;
-        border: none;
-        box-shadow: 0 4px 15px 0 rgba(102, 126, 234, 0.4);
-        transition: all 0.3s ease;
-    }
-    
-    .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px 0 rgba(102, 126, 234, 0.6);
-    }
-    
+    /* Styles des boutons */
+    .stButton > button { border-radius: 8px; font-weight: bold; padding: 0.5rem 1rem; }
     div[data-testid="stButton"] > button { width: 100%; }
-    
-    /* Personnalisation des inputs */
-    .stTextInput > div > div > input,
-    .stSelectbox > div > div > div,
-    .stNumberInput > div > div > input {
-        background: rgba(255, 255, 255, 0.9) !important;
-        border-radius: 10px !important;
-        border: 1px solid rgba(255, 255, 255, 0.3) !important;
-        color: #333 !important;
-    }
-    
-    /* Style pour les expanders */
-    .streamlit-expanderHeader {
-        background: rgba(255, 255, 255, 0.1);
-        border-radius: 10px;
-        font-weight: 600;
-    }
-    
-    /* Amélioration des colonnes */
-    div[data-testid="column"] {
-        padding: 0 10px;
-    }
 </style>
 """, unsafe_allow_html=True)
 
