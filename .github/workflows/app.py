@@ -250,7 +250,7 @@ elif st.session_state['step'] == 'PROJECT':
             st.session_state['step'] = 'IDENTIFICATION'
             st.session_state['current_phase_temp'] = {}
             # Génère un nouvel UUID pour la première phase (Identification)
-            #st.session_state['iteration_id'] = str(uuid.uuid4()) 
+            st.session_state['iteration_id'] = str(uuid.uuid4()) 
             st.rerun()
 
 # 3. IDENTIFICATION (state: 'IDENTIFICATION')
@@ -260,8 +260,8 @@ elif st.session_state['step'] == 'IDENTIFICATION':
     # Récupère le nom de la première section de l'Excel (considérée comme l'identification)
     ID_SECTION_NAME = df['section'].iloc[0]
     
-    st.markdown(f'<div class="phase-block">', unsafe_allow_html=True)
-    st.markdown(f"### 👤 Étape unique : {ID_SECTION_NAME}")
+    #st.markdown(f'<div class="phase-block">', unsafe_allow_html=True)
+    #st.markdown(f"### 👤 Étape unique : {ID_SECTION_NAME}")
 
     identification_questions = df[df['section'] == ID_SECTION_NAME]
     
