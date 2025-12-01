@@ -296,7 +296,6 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
 
     # A. DÉCISION
     if st.session_state['step'] == 'LOOP_DECISION':
-        # st.markdown('<div class="phase-block">', unsafe_allow_html=True)
         st.markdown("### 🔄 Gestion des Phases")
         
         col1, col2 = st.columns(2)
