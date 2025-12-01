@@ -312,7 +312,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
         for idx, item in enumerate(st.session_state['collected_data']):
             st.write(f"• **{item['phase_name']}** : {len(item['answers'])} réponses")
         
-        st.json(st.session_state['project_data'])
+        
 
     # --- A. DÉCISION (HUB) ---
     if st.session_state['step'] == 'LOOP_DECISION':
@@ -372,7 +372,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             # Affichage du formulaire de remplissage de la phase sélectionnée
             current_phase = st.session_state['current_phase_name']
             st.markdown(f"### 📝 Remplissage : {current_phase}")
-            
+            st.markdown("---")
             if st.button("🔄 Changer de phase"):
                 st.session_state['current_phase_name'] = None
                 st.session_state['current_phase_temp'] = {}
