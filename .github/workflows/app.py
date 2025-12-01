@@ -312,7 +312,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
         for idx, item in enumerate(st.session_state['collected_data']):
             st.write(f"• **{item['phase_name']}** : {len(item['answers'])} réponses")
         
-        
+        st.json(st.session_state['project_data'])
 
     # --- A. DÉCISION (HUB) ---
     if st.session_state['step'] == 'LOOP_DECISION':
