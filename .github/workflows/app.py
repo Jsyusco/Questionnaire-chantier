@@ -43,7 +43,8 @@ st.markdown("""
 # Si le même fichier est chargé plusieurs fois, la fonction ne s'exécute qu'une seule fois, améliorant les performances.
 @st.cache_data
 def load_form_structure(file):
-    try:
+    try:
+        df = pd.read_excel(file, sheet_name='Questions', engine='openpyxl')
       # Lecture de la feuille 'Questions' (structure du formulaire)
         df = pd.read_excel(file, sheet_name='Questions', engine='openpyxl')
         df.columns = df.columns.str.strip() # Nettoie les noms de colonnes
