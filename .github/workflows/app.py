@@ -211,7 +211,7 @@ def render_question(row, answers, key_suffix):
 
 # --- FLUX PRINCIPAL ---
 
-st.markdown('<div class="main-header"><h1>📝 Audit & Formulaire Dynamique</h1></div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header"><h1>📝Formulaire Chantier</h1></div>', unsafe_allow_html=True)
 df = st.session_state.get('df_struct')
 
 # 1. CHARGEMENT
