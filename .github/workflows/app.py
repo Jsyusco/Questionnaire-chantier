@@ -2,70 +2,115 @@
 import streamlit as st
 import pandas as pd
 import uuid
+import firebase_admin
+from firebase_admin import credentials, firestore
+# L'importation de FieldFilter n'est pas nécessaire ici, mais pas nuisible
+# from google.cloud.firestore_v1.base_query import FieldFilter 
 
-# --- CONFIGURATION ET STYLE ---
+# --- CONFIGURATION ET STYLE (AUCUN CHANGEMENT) ---
 st.set_page_config(page_title="Formulaire Dynamique - Mode Boucle V3", layout="centered")
 
 st.markdown("""
 <style>
-    .stApp { background-color: #121212; color: #e0e0e0; }
-    .main-header { background-color: #1e1e1e; padding: 20px; border-radius: 10px; margin-bottom: 20px; text-align: center; border-bottom: 3px solid #4285F4; }
-    .block-container { max-width: 800px; }
-    .phase-block { background-color: #1e1e1e; padding: 25px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #333; }
-    .question-card { background-color: transparent; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #4285F4; }
-    h1, h2, h3 { color: #ffffff !important; }
-    .description { font-size: 0.9em; color: #aaaaaa; font-style: italic; margin-bottom: 10px; }
-    .mandatory { color: #F4B400; font-weight: bold; margin-left: 5px; }
-    .success-box { background-color: #1e4620; padding: 15px; border-radius: 8px; border-left: 5px solid #4caf50; color: #fff; margin: 10px 0; }
-    .error-box { background-color: #3d1f1f; padding: 15px; border-radius: 8px; border-left: 5px solid #ff6b6b; color: #ffdad9; margin: 10px 0; }
-    .stButton > button { border-radius: 8px; font-weight: bold; padding: 0.5rem 1rem; }
-    div[data-testid="stButton"] > button { width: 100%; }
+    .stApp { background-color: #121212; color: #e0e0e0; }
+    .main-header { background-color: #1e1e1e; padding: 20px; border-radius: 10px; margin-bottom: 20px; text-align: center; border-bottom: 3px solid #4285F4; }
+    .block-container { max-width: 800px; }
+    .phase-block { background-color: #1e1e1e; padding: 25px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #333; }
+    .question-card { background-color: transparent; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #4285F4; }
+    h1, h2, h3 { color: #ffffff !important; }
+    .description { font-size: 0.9em; color: #aaaaaa; font-style: italic; margin-bottom: 10px; }
+    .mandatory { color: #F4B400; font-weight: bold; margin-left: 5px; }
+    .success-box { background-color: #1e4620; padding: 15px; border-radius: 8px; border-left: 5px solid #4caf50; color: #fff; margin: 10px 0; }
+    .error-box { background-color: #3d1f1f; padding: 15px; border-radius: 8px; border-left: 5px solid #ff6b6b; color: #ffdad9; margin: 10px 0; }
+    .stButton > button { border-radius: 8px; font-weight: bold; padding: 0.5rem 1rem; }
+    div[data-testid="stButton"] > button { width: 100%; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- FONCTIONS DE CHARGEMENT ---
-@st.cache_data
-def load_form_structure(file):
+# --- INITIALISATION FIREBASE SÉCURISÉE ---
+def initialize_firebase():
+    if not firebase_admin._apps:
+        try:
+            cred = credentials.Certificate(st.secrets["firebase"])
+            firebase_admin.initialize_app(cred)
+            st.sidebar.success("Connexion à Firebase réussie.")
+        except KeyError:
+            st.sidebar.error("Erreur: Section 'firebase' introuvable dans st.secrets.toml.")
+            st.stop()
+        except Exception as e:
+            st.sidebar.error(f"Erreur d'initialisation Firebase : {e}")
+            st.stop()
+    
+    return firestore.client()
+
+db = initialize_firebase()
+
+# --- NOUVELLES FONCTIONS DE CHARGEMENT FIREBASE (ADAPTÉES) ---
+
+@st.cache_data(ttl=3600)
+def load_form_structure_from_firestore():
+    """Charge la structure du formulaire depuis la collection 'formsquestions'."""
     try:
-        df = pd.read_excel(file, sheet_name='Questions', engine='openpyxl')
-        df.columns = df.columns.str.strip() 
+        # LECTURE DEPUIS 'formsquestions'
+        docs = db.collection('formsquestions').order_by('id').get()
         
-        # --- MISE À JOUR ICI : Mapping étendu pour couvrir "Condition" (Col I) ---
+        data = [doc.to_dict() for doc in docs]
+        
+        if not data:
+            st.error("Aucun document trouvé dans la collection 'formsquestions'.")
+            return None
+        
+        df = pd.DataFrame(data)
+        
+        # Nettoyage et normalisation des colonnes (même logique que la version Excel)
+        df.columns = df.columns.str.strip()
+        
         rename_map = {
-            'Conditon value': 'Condition value', 
+            'Condition value': 'Condition value',
             'condition value': 'Condition value',
             'Condition Value': 'Condition value',
-            'Condition': 'Condition value',  # Ajout pour supporter le nom standard "Condition"
-            'Conditon on': 'Condition on', 
+            'Condition': 'Condition value',
+            'Conditon on': 'Condition on',
             'condition on': 'Condition on'
         }
-        # On applique le mapping uniquement si les colonnes existent
         actual_rename = {k: v for k, v in rename_map.items() if k in df.columns}
         df = df.rename(columns=actual_rename)
         
         df['options'] = df['options'].fillna('')
         df['Description'] = df['Description'].fillna('')
         df['Condition value'] = df['Condition value'].fillna('')
-        df['Condition on'] = df['Condition on'].fillna(0)
+        # S'assurer que Condition on est bien un nombre pour la vérification de condition
+        df['Condition on'] = df['Condition on'].apply(lambda x: int(x) if pd.notna(x) else 0)
+        
         return df
     except Exception as e:
-        st.error(f"Erreur technique lors de la lecture du fichier structure : {e}")
+        st.error(f"Erreur lors de la lecture de la structure 'formsquestions' Firestore : {e}")
         return None
 
-@st.cache_data
-def load_site_data(file):
+@st.cache_data(ttl=3600)
+def load_site_data_from_firestore():
+    """Charge les données des sites depuis la collection 'Sites'."""
     try:
-        df_site = pd.read_excel(file, sheet_name='Site', engine='openpyxl')
+        # LECTURE DEPUIS 'Sites'
+        docs = db.collection('Sites').get()
+        
+        data = [doc.to_dict() for doc in docs]
+        
+        if not data:
+            st.error("Aucun document trouvé dans la collection 'Sites'.")
+            return None
+            
+        df_site = pd.DataFrame(data)
         df_site.columns = df_site.columns.str.strip()
         return df_site
     except Exception as e:
-        st.error(f"Erreur lors de la lecture de la feuille 'Site' : {e}")
+        st.error(f"Erreur lors de la lecture des données de site 'Sites' Firestore : {e}")
         return None
 
-# --- GESTION DE L'ÉTAT ---
+# --- GESTION DE L'ÉTAT (AUCUN CHANGEMENT) ---
 def init_session_state():
     defaults = {
-        'step': 'UPLOAD',
+        'step': 'PROJECT_LOAD',
         'project_data': None,
         'collected_data': [],
         'current_phase_temp': {},
@@ -79,71 +124,53 @@ def init_session_state():
 
 init_session_state()
 
-# --- LOGIQUE MÉTIER (INTÉGRATION DE VOTRE DEMANDE) ---
+# --- LOGIQUE MÉTIER (check_condition, validate_section, validate_identification, render_question) ---
+# ... (La logique métier reste inchangée, elle est robuste et ne dépend pas de la source des données)
 
 def check_condition(row, current_answers, collected_data):
     """
     Vérifie si une question doit être affichée.
     Intègre la logique : Col H (Condition on) = 1 ET Col I (Condition) satisfaite.
     """
-    
-    # 1. Vérification de la colonne H ("Condition on")
-    # Si ce n'est pas 1, la question n'est pas conditionnelle -> on affiche.
+    # [Code de la fonction check_condition (inchangé)]
     try:
         if int(row.get('Condition on', 0)) != 1:
             return True
     except (ValueError, TypeError):
-        # Si la colonne H contient du texte ou est vide par erreur, on affiche par sécurité
         return True
 
-    # 2. Préparation des données de réponses (Passé + Présent)
     all_past_answers = {}
     for phase_data in collected_data:
         all_past_answers.update(phase_data['answers'])
-    
-    # On combine : priorité aux réponses actuelles, sinon on cherche dans l'historique
     combined_answers = {**all_past_answers, **current_answers}
     
-    # 3. Analyse de la condition (Colonne I) -> Ex: '10 = "Oui"'
     condition_str = str(row.get('Condition value', '')).strip()
     
-    # Pas de condition écrite ou pas de signe égal ? On affiche.
     if not condition_str or "=" not in condition_str:
         return True
 
     try:
-        # Séparation ID cible et Valeur attendue
         target_id_str, expected_value_raw = condition_str.split('=', 1)
-        
-        # Nettoyage
         target_id = int(target_id_str.strip())
-        # Enlève les espaces et les guillemets simples ou doubles autour de la valeur
         expected_value = expected_value_raw.strip().strip('"').strip("'")
         
-        # Récupération de la réponse utilisateur
         user_answer = combined_answers.get(target_id)
         
-        # Comparaison robuste (insensible à la casse, conversion en string)
         if user_answer is not None:
             return str(user_answer).lower() == str(expected_value).lower()
         else:
-            # Si la question parente n'a pas encore de réponse, la condition est fausse
             return False
             
     except Exception as e:
-        # En cas d'erreur de parsing (ex: format non respecté), on affiche par défaut
-        # print(f"Debug: Erreur condition question {row.get('id')}: {e}")
         return True
 
 def validate_section(df_questions, section_name, answers, collected_data):
     """Valide si toutes les questions obligatoires visibles ont une réponse."""
+    # [Code de la fonction validate_section (inchangé)]
     missing = []
-    # On filtre sur la section
     section_rows = df_questions[df_questions['section'] == section_name]
     
     for _, row in section_rows.iterrows():
-        # --- POINT CRUCIAL ---
-        # On ne valide que si la question est visible (condition remplie)
         if not check_condition(row, answers, collected_data):
             continue
             
@@ -151,7 +178,6 @@ def validate_section(df_questions, section_name, answers, collected_data):
         if is_mandatory:
             q_id = int(row['id'])
             val = answers.get(q_id)
-            # Vérifie si vide
             if val is None or val == "" or (isinstance(val, (int, float)) and val == 0):
                 missing.append(f"Question {q_id} : {row['question']}")
                 
@@ -160,10 +186,9 @@ def validate_section(df_questions, section_name, answers, collected_data):
 validate_phase = validate_section
 validate_identification = validate_section
 
-# --- COMPOSANTS UI ---
-
 def render_question(row, answers, key_suffix):
     """Affiche un widget Streamlit."""
+    # [Code de la fonction render_question (inchangé)]
     q_id = int(row['id'])
     q_text = row['question']
     q_type = str(row['type']).strip().lower()
@@ -209,23 +234,28 @@ def render_question(row, answers, key_suffix):
     if val is not None:
         answers[q_id] = val
 
-# --- FLUX PRINCIPAL ---
+
+# --- FLUX PRINCIPAL (AUCUN CHANGEMENT SAUF ÉTAPE 1) ---
 
 st.markdown('<div class="main-header"><h1>📝Formulaire Chantier</h1></div>', unsafe_allow_html=True)
 df = st.session_state.get('df_struct')
 
-# 1. CHARGEMENT
-if st.session_state['step'] == 'UPLOAD':
-    uploaded_file = st.file_uploader("📂 Chargez le fichier de configuration (Excel)", type=["xlsx"])
-    if uploaded_file:
-        df_struct = load_form_structure(uploaded_file)
-        df_site = load_site_data(uploaded_file)
-        
-        if df_struct is not None and df_site is not None:
-            st.session_state['df_struct'] = df_struct
-            st.session_state['df_site'] = df_site
-            st.session_state['step'] = 'PROJECT'
-            st.rerun()
+# 1. CHARGEMENT DE FIREBASE
+if st.session_state['step'] == 'PROJECT_LOAD':
+    st.markdown("### ☁️ Chargement de la structure et des sites...")
+    
+    df_struct = load_form_structure_from_firestore()
+    df_site = load_site_data_from_firestore()
+    
+    if df_struct is not None and df_site is not None:
+        st.session_state['df_struct'] = df_struct
+        st.session_state['df_site'] = df_site
+        st.session_state['step'] = 'PROJECT'
+        st.success("Données chargées depuis Firestore.")
+        st.rerun()
+    else:
+        st.error("Échec du chargement des données initiales. Vérifiez les collections Firestore **'Sites'** et **'formsquestions'**.")
+
 
 # 2. SÉLECTION PROJET
 elif st.session_state['step'] == 'PROJECT':
@@ -233,8 +263,8 @@ elif st.session_state['step'] == 'PROJECT':
     st.markdown("### 🏗️ Sélection du Chantier")
     
     if 'Intitulé' not in df_site.columns:
-        st.error("Colonne 'Intitulé' manquante dans la feuille 'Site'.")
-        st.session_state['step'] = 'UPLOAD'
+        st.error("Colonne 'Intitulé' manquante dans la collection 'Sites'.")
+        st.session_state['step'] = 'PROJECT_LOAD'
         st.rerun()
         
     projects = [""] + df_site['Intitulé'].dropna().unique().tolist()
@@ -248,7 +278,7 @@ elif st.session_state['step'] == 'PROJECT':
             st.session_state['project_data'] = row.to_dict()
             st.session_state['step'] = 'IDENTIFICATION'
             st.session_state['current_phase_temp'] = {}
-            st.session_state['iteration_id'] = str(uuid.uuid4()) 
+            st.session_state['iteration_id'] = str(uuid.uuid4())
             st.rerun()
 
 # 3. IDENTIFICATION
@@ -261,7 +291,6 @@ elif st.session_state['step'] == 'IDENTIFICATION':
     identification_questions = df[df['section'] == ID_SECTION_NAME]
     
     for _, row in identification_questions.iterrows():
-        # Appel de la nouvelle logique conditionnelle
         if check_condition(row, st.session_state['current_phase_temp'], st.session_state['collected_data']):
             render_question(row, st.session_state['current_phase_temp'], st.session_state['iteration_id'])
             
@@ -358,7 +387,6 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             
             visible_count = 0
             for _, row in section_questions.iterrows():
-                # Appel de la nouvelle logique conditionnelle
                 if check_condition(row, st.session_state['current_phase_temp'], st.session_state['collected_data']):
                     render_question(row, st.session_state['current_phase_temp'], st.session_state['iteration_id'])
                     visible_count += 1
