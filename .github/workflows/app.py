@@ -407,7 +407,7 @@ def render_question(row, answers, phase_name, key_suffix, loop_index):
 
 # --- FLUX PRINCIPAL (inchangé) ---
 
-st.markdown('<div class="main-header"><h1>📝Formulaire Chantier (Cloud)</h1></div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header"><h1>📝Formulaire Chantier </h1></div>', unsafe_allow_html=True)
 
 if st.session_state['step'] == 'PROJECT_LOAD':
     st.info("Tentative de chargement de la structure des formulaires...")
