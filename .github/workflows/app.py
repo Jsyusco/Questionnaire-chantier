@@ -132,7 +132,7 @@ def load_site_data_from_firestore():
         return None
 
 def save_form_data(collected_data, project_data):
-    """Sauvegarde les données finales dans 'FormAnswers'."""
+    """[MODIFICATION] Sauvegarde les données finales dans 'FormAnswers' avec l'ID et l'heure de début."""
     try:
         cleaned_data = []
         for phase in collected_data:
@@ -146,32 +146,47 @@ def save_form_data(collected_data, project_data):
                 else:
                     clean_phase["answers"][str(k)] = v
             cleaned_data.append(clean_phase)
-
+        
+        submission_id = st.session_state.get('submission_id', str(uuid.uuid4()))
+        
         final_document = {
             "project_intitule": project_data.get('Intitulé', 'N/A'),
             "project_details": project_data,
+            "submission_id": submission_id, # Ajout de l'ID unique
+            "start_date": st.session_state.get('form_start_time', datetime.now()), # Ajout de l'heure de début
             "submission_date": datetime.now(),
             "status": "Completed",
             "collected_phases": cleaned_data
         }
         
         doc_id_base = str(project_data.get('Intitulé', 'form')).replace(" ", "_").replace("/", "_")[:20]
-        doc_id = f"{doc_id_base}_{datetime.now().strftime('%Y%m%d_%H%M')}_{str(uuid.uuid4())[:6]}"
+        # Utilisation de l'ID unique dans le nom du document
+        doc_id = f"{doc_id_base}_{datetime.now().strftime('%Y%m%d_%H%M')}_{submission_id[:6]}"
         
         db.collection('FormAnswers').document(doc_id).set(final_document)
-        return True, doc_id
+        # Retourne l'ID unique pour le message de confirmation
+        return True, submission_id 
     except Exception as e:
         return False, str(e)
 
-# --- FONCTIONS EXPORT (NOUVEAU) ---
+# --- FONCTIONS EXPORT (MODIFIÉES) ---
 
 def create_csv_export(collected_data, df_struct):
-    """Génère un CSV à partir des données collectées."""
+    """[MODIFICATION] Génère un CSV à partir des données collectées avec ID et dates."""
     rows = []
     
-    # Information projet
+    # Informations du formulaire provenant de session_state
+    submission_id = st.session_state.get('submission_id', 'N/A')
     project_name = st.session_state['project_data'].get('Intitulé', 'Projet Inconnu')
     
+    start_time = st.session_state.get('form_start_time', 'N/A')
+    # L'heure de fin est l'heure actuelle lorsque l'export est généré
+    end_time = datetime.now() 
+    
+    # Formatage des dates pour le CSV
+    start_time_str = start_time.strftime('%Y-%m-%d %H:%M:%S') if isinstance(start_time, datetime) else 'N/A'
+    end_time_str = end_time.strftime('%Y-%m-%d %H:%M:%S')
+
     for item in collected_data:
         phase_name = item['phase_name']
         for q_id, val in item['answers'].items():
@@ -189,6 +204,9 @@ def create_csv_export(collected_data, df_struct):
                 final_val = str(val)
             
             rows.append({
+                "ID Formulaire": submission_id, # NOUVEAU
+                "Date Début": start_time_str,   # NOUVEAU
+                "Date Fin": end_time_str,       # NOUVEAU
                 "Projet": project_name,
                 "Phase": phase_name,
                 "ID": q_id,
@@ -197,7 +215,6 @@ def create_csv_export(collected_data, df_struct):
             })
             
     df_export = pd.DataFrame(rows)
-    # Encodage utf-8-sig pour compatibilité Excel Windows
     return df_export.to_csv(index=False, sep=';', encoding='utf-8-sig')
 
 def create_zip_export(collected_data):
@@ -210,16 +227,13 @@ def create_zip_export(collected_data):
             phase_name = str(item['phase_name']).replace(" ", "_").replace("/", "-")
             
             for q_id, val in item['answers'].items():
-                # Vérifier si c'est un fichier (Streamlit UploadedFile)
                 if hasattr(val, 'read') and hasattr(val, 'name'):
                     has_files = True
-                    # IMPORTANT: Remettre le curseur au début car il a peut-être été lu
                     val.seek(0)
                     file_content = val.read()
                     
-                    # Créer un nom unique pour éviter les écrasements
-                    file_ext = val.name.split('.')[-1]
-                    archive_name = f"{phase_name}_Q{q_id}_{val.name}"
+                    clean_phase = phase_name.replace(" ", "_").replace("/", "-")
+                    archive_name = f"{clean_phase}_Q{q_id}_{val.name}"
                     
                     zip_file.writestr(archive_name, file_content)
                     
@@ -227,6 +241,7 @@ def create_zip_export(collected_data):
 
 # --- GESTION DE L'ÉTAT ---
 def init_session_state():
+    """[MODIFICATION] Ajout de l'ID de soumission et de l'heure de début."""
     defaults = {
         'step': 'PROJECT_LOAD',
         'project_data': None,
@@ -236,7 +251,9 @@ def init_session_state():
         'iteration_id': str(uuid.uuid4()), 
         'identification_completed': False,
         'data_saved': False,
-        'id_rendering_ident': None
+        'id_rendering_ident': None,
+        'form_start_time': None,    # NOUVEAU : Date/heure de début de complétion
+        'submission_id': None       # NOUVEAU : ID unique du formulaire
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -244,9 +261,10 @@ def init_session_state():
 
 init_session_state()
 
-# --- LOGIQUE MÉTIER ---
+# --- LOGIQUE MÉTIER (non modifiée) ---
 
 def check_condition(row, current_answers, collected_data):
+    # Logique de condition inchangée
     try:
         if int(row.get('Condition on', 0)) != 1: return True
     except (ValueError, TypeError): return True
@@ -270,6 +288,7 @@ def check_condition(row, current_answers, collected_data):
     except Exception: return True
 
 def validate_section(df_questions, section_name, answers, collected_data):
+    # Logique de validation inchangée
     missing = []
     section_rows = df_questions[df_questions['section'] == section_name]
     for _, row in section_rows.iterrows():
@@ -285,10 +304,10 @@ def validate_section(df_questions, section_name, answers, collected_data):
 validate_phase = validate_section
 validate_identification = validate_section
 
-# --- COMPOSANTS UI ---
+# --- COMPOSANTS UI (non modifiés) ---
 
 def render_question(row, answers, phase_name, key_suffix, loop_index):
-    """Affiche un widget Streamlit."""
+    # Logique de rendu de question inchangée
     q_id = int(row['id'])
     q_text = row['question']
     q_type = str(row['type']).strip().lower()
@@ -365,7 +384,10 @@ elif st.session_state['step'] == 'PROJECT':
             st.info(f"Projet sélectionné : {selected_proj} ")
             
             if st.button("✅ Démarrer l'identification"):
+                """[MODIFICATION] Stockage de l'heure de début et génération de l'ID unique."""
                 st.session_state['project_data'] = row.to_dict()
+                st.session_state['form_start_time'] = datetime.now() 
+                st.session_state['submission_id'] = str(uuid.uuid4())
                 st.session_state['step'] = 'IDENTIFICATION'
                 st.session_state['current_phase_temp'] = {}
                 st.session_state['iteration_id'] = str(uuid.uuid4()) 
@@ -514,14 +536,15 @@ elif st.session_state['step'] == 'FINISHED':
     # 1. SAUVEGARDE SUR FIREBASE
     if not st.session_state['data_saved']:
         with st.spinner("Sauvegarde dans Firestore en cours..."):
-            success, message = save_form_data(st.session_state['collected_data'], st.session_state['project_data'])
+            # L'ID de soumission est retourné ici
+            success, submission_id_returned = save_form_data(st.session_state['collected_data'], st.session_state['project_data'])
             
             if success:
                 st.balloons()
-                st.success(f"Données sauvegardées avec succès ! (ID: {message})")
+                st.success(f"Données sauvegardées avec succès ! (ID: {submission_id_returned})")
                 st.session_state['data_saved'] = True
             else:
-                st.error(f"Erreur lors de la sauvegarde : {message}")
+                st.error(f"Erreur lors de la sauvegarde : {submission_id_returned}")
                 if st.button("Réessayer la sauvegarde"):
                     st.rerun()
     else:
@@ -536,6 +559,7 @@ elif st.session_state['step'] == 'FINISHED':
         col_csv, col_zip = st.columns(2)
         
         # --- Export CSV ---
+        # Appel de la fonction MODIFIÉE qui inclut maintenant les dates et l'ID
         csv_data = create_csv_export(st.session_state['collected_data'], st.session_state['df_struct'])
         date_str = datetime.now().strftime('%Y%m%d_%H%M')
         file_name_csv = f"Export_{st.session_state['project_data'].get('Intitulé', 'Projet')}_{date_str}.csv"
