@@ -9,89 +9,23 @@ import numpy as np
 import zipfile
 import io
 
-# --- CONFIGURATION ET STYLE (MODIFIÉ POUR LES COULEURS DEMANDÉES) ---
+# --- CONFIGURATION ET STYLE (inchangés) ---
 st.set_page_config(page_title="Formulaire Dynamique - Firestore", layout="centered")
-
-# Palette demandée :
-# - Fond clair général : #F5F5F4
-# - Teinte principale (titres / accents) : #045343
-# - Accent chaud (boutons / highlights) : #E9630C
-# - Teinte sombre secondaire (success / fonds de carte) : #043C2C
 
 st.markdown("""
 <style>
-    /* Global app background */
-    .stApp { background-color: #F5F5F4; color: #043C2C; }
-
-    /* Central container styling */
-    .block-container { max-width: 900px; }
-
-    /* Header */
-    .main-header { 
-        background: linear-gradient(180deg, rgba(4,83,67,1) 0%, rgba(4,60,44,1) 100%); 
-        color: #F5F5F4; 
-        padding: 18px; 
-        border-radius: 12px; 
-        margin-bottom: 20px; 
-        text-align: center; 
-        border-bottom: 4px solid #E9630C; 
-        box-shadow: 0 4px 12px rgba(4,60,44,0.12);
-    }
-
-    /* Phase blocks */
-    .phase-block { 
-        background-color: #FFFFFF; 
-        padding: 20px; 
-        border-radius: 12px; 
-        margin-bottom: 18px; 
-        border: 1px solid rgba(4,83,67,0.08);
-    }
-
-    /* Question card with subtle left accent */
-    .question-card { 
-        background-color: transparent; 
-        padding: 12px 14px; 
-        border-radius: 8px; 
-        margin-bottom: 12px; 
-        border-left: 6px solid #E9630C; 
-    }
-
-    /* Headings color to match palette */
-    h1, h2, h3 { color: #045343 !important; }
-
-    /* Description / helper text */
-    .description { font-size: 0.92em; color: #2f5f54; font-style: italic; margin-bottom: 8px; }
-
-    /* Mandatory star */
-    .mandatory { color: #E9630C; font-weight: bold; margin-left: 6px; }
-
-    /* Success and error boxes */
-    .success-box { background-color: #043C2C; padding: 14px; border-radius: 8px; border-left: 6px solid #045343; color: #F5F5F4; margin: 10px 0; }
-    .error-box { background-color: #fff5f0; padding: 12px; border-radius: 8px; border-left: 6px solid #E9630C; color: #7a2f11; margin: 10px 0; }
-
-    /* Buttons styling */
-    .stButton > button {
-        border-radius: 10px; 
-        font-weight: 600; 
-        padding: 0.55rem 1rem; 
-        background-color: #E9630C; 
-        color: #FFFFFF;
-        border: 1px solid rgba(0,0,0,0.06);
-    }
-
-    /* Make side-by-side buttons span width where used */
+    .stApp { background-color: #121212; color: #e0e0e0; }
+    .main-header { background-color: #1e1e1e; padding: 20px; border-radius: 10px; margin-bottom: 20px; text-align: center; border-bottom: 3px solid #4285F4; }
+    .block-container { max-width: 800px; }
+    .phase-block { background-color: #1e1e1e; padding: 25px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #333; }
+    .question-card { background-color: transparent; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #4285F4; }
+    h1, h2, h3 { color: #ffffff !important; }
+    .description { font-size: 0.9em; color: #aaaaaa; font-style: italic; margin-bottom: 10px; }
+    .mandatory { color: #F4B400; font-weight: bold; margin-left: 5px; }
+    .success-box { background-color: #1e4620; padding: 15px; border-radius: 8px; border-left: 5px solid #4caf50; color: #fff; margin: 10px 0; }
+    .error-box { background-color: #3d1f1f; padding: 15px; border-radius: 8px; border-left: 5px solid #ff6b6b; color: #ffdad9; margin: 10px 0; }
+    .stButton > button { border-radius: 8px; font-weight: bold; padding: 0.5rem 1rem; }
     div[data-testid="stButton"] > button { width: 100%; }
-
-    /* Input focus outlines - subtle teal */
-    input[type="text"], textarea {
-        box-shadow: 0 0 0 3px rgba(4,83,67,0.04) !important;
-    }
-
-    /* Small utility */
-    .small-muted { font-size: 0.85em; color: #567a70; }
-
-    /* Ensure dark mode elements (like code/json) remain legible */
-    .stJson, pre { background: #ffffff; color: #043C2C; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -407,7 +341,7 @@ def validate_section(df_questions, section_name, answers, collected_data):
 validate_phase = validate_section
 validate_identification = validate_section
 
-# --- COMPOSANTS UI (inchangée sauf quelques messages de confirmation) ---
+# --- COMPOSANTS UI (inchangée) ---
 
 def render_question(row, answers, phase_name, key_suffix, loop_index):
     """Utilise 'accept_multiple_files=True' pour les photos et gère l'ID 9 comme un entier."""
@@ -618,7 +552,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             with cols1[i]:
                 # Utilisation de Markdown pour un affichage "clé : valeur" minimaliste
                 st.markdown(f"{renamed_key} : {value}")
-
+        
         # Ligne 2 : Les Nouveaux Déploiements (Ordre 4, 5, 6)
         st.markdown("**2. Points de charge**")
         cols2 = st.columns([1, 1, 1])
