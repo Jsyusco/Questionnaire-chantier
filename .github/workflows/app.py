@@ -6,6 +6,8 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime
 import numpy as np
+import zipfile
+import io
 
 # --- CONFIGURATION ET STYLE ---
 st.set_page_config(page_title="Formulaire Dynamique - Firestore", layout="centered")
@@ -96,20 +98,13 @@ def load_form_structure_from_firestore():
         df['Condition value'] = df['Condition value'].fillna('')
         df['Condition on'] = df['Condition on'].apply(lambda x: int(x) if pd.notna(x) and str(x).isdigit() else 0)
         
-        # >>> DÉBUT DE LA CORRECTION D'ENCODAGE SUPPLÉMENTAIRE <<<
+        # Correction d'encodage
         for col in df.select_dtypes(include=['object']).columns:
-            # 1. Conversion en chaîne et suppression des espaces blancs
             df[col] = df[col].astype(str).str.strip()
-            
-            # 2. Application du nettoyage de l'encodage pour neutraliser les erreurs
             try:
-                # Ceci tente de forcer l'interprétation en tant que chaîne Unicode propre
-                # Encodage en UTF-8 puis décodage pour supprimer les caractères invalides ou invisibles
                 df[col] = df[col].apply(lambda x: x.encode('utf-8', 'ignore').decode('utf-8', 'ignore'))
             except Exception:
-                pass # Laisser la chaîne telle quelle si la conversion échoue
-
-        # >>> FIN DE LA CORRECTION D'ENCODAGE SUPPLÉMENTAIRE <<<
+                pass 
         
         return df
     except Exception as e:
@@ -167,6 +162,68 @@ def save_form_data(collected_data, project_data):
         return True, doc_id
     except Exception as e:
         return False, str(e)
+
+# --- FONCTIONS EXPORT (NOUVEAU) ---
+
+def create_csv_export(collected_data, df_struct):
+    """Génère un CSV à partir des données collectées."""
+    rows = []
+    
+    # Information projet
+    project_name = st.session_state['project_data'].get('Intitulé', 'Projet Inconnu')
+    
+    for item in collected_data:
+        phase_name = item['phase_name']
+        for q_id, val in item['answers'].items():
+            # Trouver le libellé de la question
+            q_row = df_struct[df_struct['id'] == int(q_id)]
+            if not q_row.empty:
+                q_text = q_row.iloc[0]['question']
+            else:
+                q_text = f"Question ID {q_id}"
+            
+            # Gérer la valeur (fichier vs texte)
+            if hasattr(val, 'name'):
+                final_val = f"[Fichier] {val.name}"
+            else:
+                final_val = str(val)
+            
+            rows.append({
+                "Projet": project_name,
+                "Phase": phase_name,
+                "ID": q_id,
+                "Question": q_text,
+                "Réponse": final_val
+            })
+            
+    df_export = pd.DataFrame(rows)
+    # Encodage utf-8-sig pour compatibilité Excel Windows
+    return df_export.to_csv(index=False, sep=';', encoding='utf-8-sig')
+
+def create_zip_export(collected_data):
+    """Génère un fichier ZIP contenant toutes les images uploadées."""
+    zip_buffer = io.BytesIO()
+    has_files = False
+    
+    with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+        for item in collected_data:
+            phase_name = str(item['phase_name']).replace(" ", "_").replace("/", "-")
+            
+            for q_id, val in item['answers'].items():
+                # Vérifier si c'est un fichier (Streamlit UploadedFile)
+                if hasattr(val, 'read') and hasattr(val, 'name'):
+                    has_files = True
+                    # IMPORTANT: Remettre le curseur au début car il a peut-être été lu
+                    val.seek(0)
+                    file_content = val.read()
+                    
+                    # Créer un nom unique pour éviter les écrasements
+                    file_ext = val.name.split('.')[-1]
+                    archive_name = f"{phase_name}_Q{q_id}_{val.name}"
+                    
+                    zip_file.writestr(archive_name, file_content)
+                    
+    return zip_buffer if has_files else None
 
 # --- GESTION DE L'ÉTAT ---
 def init_session_state():
@@ -239,7 +296,6 @@ def render_question(row, answers, phase_name, key_suffix, loop_index):
     q_mandatory = str(row['obligatoire']).lower() == 'oui'
     q_options = str(row['options']).split(',') if row['options'] else []
     
-    # Correction de l'affichage: s'assurer que le texte est une chaîne propre
     q_text = str(q_text).strip()
     q_desc = str(q_desc).strip()
     
@@ -289,8 +345,8 @@ if st.session_state['step'] == 'PROJECT_LOAD':
         else:
             st.error("Impossible de charger les données.")
             if st.button("Réessayer le chargement"):
-                load_form_structure_from_firestore.clear() # EFFACE LE CACHE
-                load_site_data_from_firestore.clear() # EFFACE LE CACHE
+                load_form_structure_from_firestore.clear() 
+                load_site_data_from_firestore.clear() 
                 st.session_state['step'] = 'PROJECT_LOAD'
                 st.rerun()
 
@@ -455,6 +511,7 @@ elif st.session_state['step'] == 'FINISHED':
     st.markdown("## 🎉 Formulaire Terminé")
     st.write(f"Projet : **{st.session_state['project_data'].get('Intitulé')}**")
     
+    # 1. SAUVEGARDE SUR FIREBASE
     if not st.session_state['data_saved']:
         with st.spinner("Sauvegarde dans Firestore en cours..."):
             success, message = save_form_data(st.session_state['collected_data'], st.session_state['project_data'])
@@ -468,8 +525,47 @@ elif st.session_state['step'] == 'FINISHED':
                 if st.button("Réessayer la sauvegarde"):
                     st.rerun()
     else:
-        st.info("Les données ont déjà été sauvegardées.")
+        st.info("Les données ont déjà été sauvegardées sur Firestore.")
 
+    st.markdown("---")
+    
+    # 2. GENERATION DES EXPORTS (UNIQUEMENT APRES SAUVEGARDE)
+    if st.session_state['data_saved']:
+        st.markdown("### 📥 Télécharger les données")
+        
+        col_csv, col_zip = st.columns(2)
+        
+        # --- Export CSV ---
+        csv_data = create_csv_export(st.session_state['collected_data'], st.session_state['df_struct'])
+        date_str = datetime.now().strftime('%Y%m%d_%H%M')
+        file_name_csv = f"Export_{st.session_state['project_data'].get('Intitulé', 'Projet')}_{date_str}.csv"
+        
+        with col_csv:
+            st.download_button(
+                label="📄 Télécharger les réponses (CSV)",
+                data=csv_data,
+                file_name=file_name_csv,
+                mime='text/csv'
+            )
+
+        # --- Export ZIP (Photos) ---
+        zip_buffer = create_zip_export(st.session_state['collected_data'])
+        
+        with col_zip:
+            if zip_buffer:
+                file_name_zip = f"Photos_{st.session_state['project_data'].get('Intitulé', 'Projet')}_{date_str}.zip"
+                st.download_button(
+                    label="📷 Télécharger les photos (ZIP)",
+                    data=zip_buffer.getvalue(),
+                    file_name=file_name_zip,
+                    mime="application/zip"
+                )
+            else:
+                st.info("Aucune photo à télécharger.")
+
+    st.markdown("---")
+
+    # Affichage JSON technique
     for i, phase in enumerate(st.session_state['collected_data']):
         with st.expander(f"Section {i+1} : {phase['phase_name']}"):
             clean_display = {k: (v.name if hasattr(v, 'name') else v) for k, v in phase['answers'].items()}
