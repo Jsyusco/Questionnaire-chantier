@@ -7,7 +7,7 @@ from firebase_admin import credentials, firestore
 from datetime import datetime
 import json
 
-# --- CONFIGURATION ET STYLE (Conservé pour l'esthétique) ---
+# --- CONFIGURATION ET STYLE ---
 st.set_page_config(page_title="Formulaire Dynamique - Firestore", layout="centered")
 
 # Style CSS pour une meilleure UI Streamlit
@@ -28,14 +28,20 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- INITIALISATION FIREBASE SÉCURISÉE (via st.secrets) ---
+# --- INITIALISATION FIREBASE SÉCURISÉE (CORRIGÉE) ---
 def initialize_firebase():
+    """Initialise la connexion à Firebase en utilisant le dictionnaire st.secrets["firebase"]."""
     if not firebase_admin._apps:
         try:
-            # Utilise les secrets stockés dans le cloud Streamlit sous la clé 'firebase'
-            cred = credentials.Certificate(st.secrets["firebase"]) 
+            # Récupération du dictionnaire de secrets depuis Streamlit
+            firebase_config_dict = st.secrets["firebase"]
+
+            # credentials.Certificate() accepte le dictionnaire python directement
+            cred = credentials.Certificate(firebase_config_dict) 
+            
             firebase_admin.initialize_app(cred)
-            st.sidebar.success("Connexion à Firebase réussie.")
+            st.sidebar.success("Connexion à Firebase réussie. ✅")
+        
         except KeyError:
             st.sidebar.error("Erreur critique: La section 'firebase' est manquante ou mal formatée dans st.secrets.")
             st.stop()
@@ -47,13 +53,13 @@ def initialize_firebase():
 
 db = initialize_firebase()
 
-
 # --- FONCTIONS DE CHARGEMENT FIREBASE ---
 
 @st.cache_data(ttl=3600)
 def load_form_structure_from_firestore():
     """Charge la structure du formulaire depuis la collection 'formsquestions'."""
     try:
+        # Utilisation du nom de collection spécifié
         docs = db.collection('formsquestions').order_by('id').get()
         data = [doc.to_dict() for doc in docs]
         
@@ -73,11 +79,9 @@ def load_form_structure_from_firestore():
         actual_rename = {k: v for k, v in rename_map.items() if k in df.columns}
         df = df.rename(columns=actual_rename)
         
-        # Remplacer les NaN/None par des valeurs par défaut
         df['options'] = df['options'].fillna('')
         df['Description'] = df['Description'].fillna('')
         df['Condition value'] = df['Condition value'].fillna('')
-        # Conversion sûre en nombre (0 par défaut)
         df['Condition on'] = df['Condition on'].apply(lambda x: int(x) if pd.notna(x) else 0)
         
         return df
@@ -89,6 +93,7 @@ def load_form_structure_from_firestore():
 def load_site_data_from_firestore():
     """Charge les données des sites depuis la collection 'Sites'."""
     try:
+        # Utilisation du nom de collection spécifié
         docs = db.collection('Sites').get()
         data = [doc.to_dict() for doc in docs]
         
@@ -103,24 +108,24 @@ def load_site_data_from_firestore():
         st.error(f"Erreur lors de la lecture des données de site 'Sites' : {e}")
         return None
 
-# --- NOUVELLE FONCTION DE SAUVEGARDE DANS FIRESTORE ---
-def save_form_data(collected_data, project_data, project_id=None):
+def save_form_data(collected_data, project_data, db_client):
     """Sauvegarde les données collectées dans la collection 'FormAnswers'."""
     try:
         # Construction du document principal à sauvegarder
         final_document = {
-            "project_id": project_data.get('Intitulé', 'N/A'),
+            "project_intitule": project_data.get('Intitulé', 'N/A'),
             "project_details": project_data,
             "submission_date": datetime.now(),
             "status": "Completed",
             "collected_phases": collected_data
         }
         
-        # Utilisation de l'ID du projet comme ID de document si disponible
-        doc_id = project_data.get('Intitulé', f"form_submit_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        # Utilisation de l'ID du projet comme ID de document, avec fallback horodaté
+        doc_id_base = project_data.get('Intitulé', 'form_submit')
+        doc_id = f"{doc_id_base}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{str(uuid.uuid4())[:8]}"
         
-        # Sauvegarde
-        db.collection('FormAnswers').document(doc_id).set(final_document)
+        # Sauvegarde dans la collection FormAnswers
+        db_client.collection('FormAnswers').document(doc_id).set(final_document)
         
         st.success(f"💾 Données sauvegardées avec succès dans Firestore ! (Collection: FormAnswers, ID: {doc_id})")
         return True
@@ -137,7 +142,8 @@ def init_session_state():
         'current_phase_temp': {},
         'current_phase_name': None,
         'iteration_id': str(uuid.uuid4()),
-        'identification_completed': False
+        'identification_completed': False,
+        'data_saved': False # Ajout d'un flag de sauvegarde
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -145,7 +151,7 @@ def init_session_state():
 
 init_session_state()
 
-# --- LOGIQUE MÉTIER (Condition & Validation - Fonctions inchangées) ---
+# --- LOGIQUE MÉTIER (Condition & Validation & Render - Fonctions inchangées) ---
 
 def check_condition(row, current_answers, collected_data):
     """Vérifie si une question doit être affichée (Condition on = 1 ET Condition value satisfaite)."""
@@ -177,7 +183,7 @@ def check_condition(row, current_answers, collected_data):
         else:
             return False
             
-    except Exception as e:
+    except Exception:
         return True
 
 def validate_section(df_questions, section_name, answers, collected_data):
@@ -237,11 +243,10 @@ def render_question(row, answers, key_suffix):
         val = st.number_input("Nombre", value=default_val, key=widget_key, label_visibility="collapsed")
         
     elif q_type == 'photo':
-        # Les fichiers chargés doivent être gérés si nécessaire (stockage dans GCS ou autre)
+        # Le file_uploader retourne un UploadedFile, qui est conservé dans answers
         val = st.file_uploader("Image", type=['png', 'jpg', 'jpeg'], key=widget_key, label_visibility="collapsed")
         if val:
             st.success(f"Image chargée : {val.name}")
-            # Note: Pour une sauvegarde complète, l'image devrait être uploadée séparément (ex: Storage)
         elif current_val:
             st.info("Image conservée.")
             
@@ -257,7 +262,7 @@ st.markdown('<div class="main-header"><h1>📝Formulaire Chantier</h1></div>', u
 
 # 1. CHARGEMENT DE FIREBASE
 if st.session_state['step'] == 'PROJECT_LOAD':
-    st.markdown("### ☁️ Chargement de la structure et des sites depuis Firestore...")
+    st.markdown("### ☁️ Chargement de la structure et des sites...")
     
     df_struct = load_form_structure_from_firestore()
     df_site = load_site_data_from_firestore()
@@ -270,7 +275,6 @@ if st.session_state['step'] == 'PROJECT_LOAD':
         st.rerun()
     else:
         st.warning("Veuillez vérifier vos collections 'Sites' et 'formsquestions'.")
-
 
 # 2. SÉLECTION PROJET
 elif st.session_state['step'] == 'PROJECT':
@@ -353,7 +357,6 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
                 st.rerun()
     
     elif st.session_state['step'] == 'FILL_PHASE':
-        # ... (Logique de sélection et de remplissage de phase inchangée)
         df = st.session_state['df_struct']
         
         ID_SECTION_NAME = df['section'].iloc[0]
@@ -420,15 +423,15 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
                         st.markdown('<div class="error-box"><b>⚠️ Erreurs :</b><br>' + '<br>'.join([f"- {e}" for e in errors]) + '</div>', unsafe_allow_html=True)
 
 
-# 5. FIN (Ajout de la sauvegarde)
+# 5. FIN (Sauvegarde et conclusion)
 elif st.session_state['step'] == 'FINISHED':
     st.markdown("## 🎉 Sauvegarde et Fin")
     st.write(f"Projet : **{st.session_state['project_data'].get('Intitulé')}**")
     
     # Tentative de sauvegarde
-    if 'data_saved' not in st.session_state:
-        # Sauvegarde uniquement la première fois qu'on arrive à l'étape FINISHED
-        success = save_form_data(st.session_state['collected_data'], st.session_state['project_data'])
+    if not st.session_state['data_saved']:
+        # db est disponible globalement grâce à initialize_firebase
+        success = save_form_data(st.session_state['collected_data'], st.session_state['project_data'], db)
         if success:
             st.balloons()
             st.session_state['data_saved'] = True
@@ -438,7 +441,7 @@ elif st.session_state['step'] == 'FINISHED':
     st.markdown("### Résumé des données collectées :")
     for i, phase in enumerate(st.session_state['collected_data']):
         with st.expander(f"Section {i+1} : {phase['phase_name']}"):
-            # Afficher le JSON sans les fichiers photo (qui sont des objets Streamlit non sérialisables)
+            # Nettoyer les objets Streamlit (fichiers) pour un affichage JSON propre
             display_data = {k: v for k, v in phase['answers'].items() if not hasattr(v, 'read')}
             st.json(display_data)
             
