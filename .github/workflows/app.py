@@ -29,6 +29,29 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# --- NOUVELLE LOGIQUE DE RENOMMAGE ET D'AFFICHAGE DU PROJET ---
+
+PROJECT_RENAME_MAP = {
+    'Intitulé': 'Intitulé',
+    'Fournisseur Bornes AC [Bornes]': 'Fournisseur Bornes AC',
+    'Fournisseur Bornes DC [Bornes]': 'Fournisseur Bornes DC',
+    'L [Plan de Déploiement]': 'PDC Lent',
+    'R [Plan de Déploiement]': 'PDC Rapide',
+    'UR [Plan de Déploiement]': 'PDC Ultra-rapide',
+    'Pré L [Plan de Déploiement]': 'PDC L pré-équipés',
+    'Pré UR [Plan de Déploiement]': 'PDC UR pré-équipés',
+    'Pré R [Plan de Déploiement]': 'PDC R pré-équipés',
+}
+
+DISPLAY_GROUPS = [
+    # Ligne 1 : Fournisseurs (Ordre 1, 2, 3)
+    ['Intitulé', 'Fournisseur Bornes AC [Bornes]', 'Fournisseur Bornes DC [Bornes]'],
+    # Ligne 2 : Déploiements Standard (Ordre 4, 5, 6)
+    ['L [Plan de Déploiement]', 'R [Plan de Déploiement]', 'UR [Plan de Déploiement]'],
+    # Ligne 3 : Déploiements Pré-équipés (Ordre 7, 8, 9)
+    ['Pré L [Plan de Déploiement]', 'Pré UR [Plan de Déploiement]', 'Pré R [Plan de Déploiement]'],
+]
+
 # --- INITIALISATION FIREBASE SÉCURISÉE (inchangée) ---
 def initialize_firebase():
     """Initialise Firebase avec les secrets individuels et force l'ID du projet."""
@@ -318,7 +341,7 @@ def validate_section(df_questions, section_name, answers, collected_data):
 validate_phase = validate_section
 validate_identification = validate_section
 
-# --- COMPOSANTS UI (MODIFIÉ : Gestion de l'entier pour l'ID 9) ---
+# --- COMPOSANTS UI (inchangée) ---
 
 def render_question(row, answers, phase_name, key_suffix, loop_index):
     """Utilise 'accept_multiple_files=True' pour les photos et gère l'ID 9 comme un entier."""
@@ -405,7 +428,7 @@ def render_question(row, answers, phase_name, key_suffix, loop_index):
     elif current_val is not None:
         answers[q_id] = current_val
 
-# --- FLUX PRINCIPAL (inchangé) ---
+# --- FLUX PRINCIPAL (Partiellement Modifié) ---
 
 st.markdown('<div class="main-header"><h1>📝Formulaire Chantier </h1></div>', unsafe_allow_html=True)
 
@@ -510,17 +533,46 @@ elif st.session_state['step'] == 'IDENTIFICATION':
 
 elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
     
-    # Ligne 511 (anciennement 513) : Ajout des détails du projet dans l'expander
     project_intitule = st.session_state['project_data'].get('Intitulé', 'Projet Inconnu')
     with st.expander(f"📍 Projet : {project_intitule}", expanded=False):
-        st.write("--- Détails du Projet Sélectionné ---")
-        # Affichage des colonnes du projet
+        
+        # --- NOUVEL AFFICHAGE STRUCTURÉ DU PROJET (Remplacement) ---
         project_details = st.session_state['project_data']
-        table_data = {
-            "Champ": list(project_details.keys()),
-            "Valeur": list(project_details.values())
-        }
-        st.table(pd.DataFrame(table_data))
+
+        st.write("--- Détails du Projet Sélectionné ---")
+        
+        # Ligne 1 : Les Fournisseurs (Ordre 1, 2, 3)
+        st.markdown("#### 1. Identification & Fournisseurs")
+        cols1 = st.columns(3)
+        fields_l1 = DISPLAY_GROUPS[0]
+        for i, field_key in enumerate(fields_l1):
+            renamed_key = PROJECT_RENAME_MAP.get(field_key, field_key)
+            # Utilise .get() pour gérer les clés qui pourraient ne pas exister
+            value = project_details.get(field_key, 'N/A')
+            with cols1[i]:
+                # st.metric est idéal pour afficher des paires label/valeur
+                st.metric(label=renamed_key, value=value)
+        
+        # Ligne 2 : Les Nouveaux Déploiements (Ordre 4, 5, 6)
+        st.markdown("#### 2. Déploiement Standard")
+        cols2 = st.columns(3)
+        fields_l2 = DISPLAY_GROUPS[1]
+        for i, field_key in enumerate(fields_l2):
+            renamed_key = PROJECT_RENAME_MAP.get(field_key, field_key)
+            value = project_details.get(field_key, 'N/A')
+            with cols2[i]:
+                st.metric(label=renamed_key, value=value)
+
+        # Ligne 3 : Les Déploiements Pré-équipés (Ordre 7, 8, 9)
+        st.markdown("#### 3. Déploiement Pré-équipé")
+        cols3 = st.columns(3)
+        fields_l3 = DISPLAY_GROUPS[2]
+        for i, field_key in enumerate(fields_l3):
+            renamed_key = PROJECT_RENAME_MAP.get(field_key, field_key)
+            value = project_details.get(field_key, 'N/A')
+            with cols3[i]:
+                st.metric(label=renamed_key, value=value)
+        # --- FIN NOUVEL AFFICHAGE ---
         
         st.write("--- Phases et Identification déjà complétées ---")
         for idx, item in enumerate(st.session_state['collected_data']):
@@ -557,15 +609,15 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             available_phases.append(sec)
         
         if not st.session_state['current_phase_name']:
-             st.markdown("### 📑 Sélection de la phase")
-             phase_choice = st.selectbox("Quelle phase ?", [""] + available_phases)
-             if phase_choice:
-                 st.session_state['current_phase_name'] = phase_choice
-                 st.rerun()
-             if st.button("⬅️ Retour"):
-                 st.session_state['step'] = 'LOOP_DECISION'
-                 st.session_state['current_phase_temp'] = {}
-                 st.rerun()
+              st.markdown("### 📑 Sélection de la phase")
+              phase_choice = st.selectbox("Quelle phase ?", [""] + available_phases)
+              if phase_choice:
+                  st.session_state['current_phase_name'] = phase_choice
+                  st.rerun()
+              if st.button("⬅️ Retour"):
+                  st.session_state['step'] = 'LOOP_DECISION'
+                  st.session_state['current_phase_temp'] = {}
+                  st.rerun()
         else:
             current_phase = st.session_state['current_phase_name']
             st.markdown(f"### 📝 {current_phase}")
