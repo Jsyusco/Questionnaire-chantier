@@ -39,8 +39,8 @@ PROJECT_RENAME_MAP = {
     'R [Plan de Déploiement]': 'PDC Rapide',
     'UR [Plan de Déploiement]': 'PDC Ultra-rapide',
     'Pré L [Plan de Déploiement]': 'PDC L pré-équipés',
-    'Pré UR [Plan de Déploiement]': 'PDC UR pré-équipés',
     'Pré R [Plan de Déploiement]': 'PDC R pré-équipés',
+    'Pré UR [Plan de Déploiement]': 'PDC UR pré-équipés',
 }
 
 DISPLAY_GROUPS = [
