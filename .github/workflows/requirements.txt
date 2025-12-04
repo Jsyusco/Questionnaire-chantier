@@ -7,5 +7,3 @@ streamlit_folium
 openpyxl
 firebase_admin
 datetime
-zipfile
-io
