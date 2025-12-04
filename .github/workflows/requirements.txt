@@ -5,3 +5,4 @@ numpy
 datetime
 streamlit_folium
 openpyxl
+firebase_admin
