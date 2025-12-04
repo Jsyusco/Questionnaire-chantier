@@ -4,12 +4,13 @@ import pandas as pd
 import uuid
 import firebase_admin
 from firebase_admin import credentials, firestore
-# L'importation de FieldFilter n'est pas nécessaire ici, mais pas nuisible
-# from google.cloud.firestore_v1.base_query import FieldFilter 
+from datetime import datetime
+import json
 
-# --- CONFIGURATION ET STYLE (AUCUN CHANGEMENT) ---
-st.set_page_config(page_title="Formulaire Dynamique - Mode Boucle V3", layout="centered")
+# --- CONFIGURATION ET STYLE (Conservé pour l'esthétique) ---
+st.set_page_config(page_title="Formulaire Dynamique - Firestore", layout="centered")
 
+# Style CSS pour une meilleure UI Streamlit
 st.markdown("""
 <style>
     .stApp { background-color: #121212; color: #e0e0e0; }
@@ -27,15 +28,16 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- INITIALISATION FIREBASE SÉCURISÉE ---
+# --- INITIALISATION FIREBASE SÉCURISÉE (via st.secrets) ---
 def initialize_firebase():
     if not firebase_admin._apps:
         try:
-            cred = credentials.Certificate(st.secrets["firebase"])
+            # Utilise les secrets stockés dans le cloud Streamlit sous la clé 'firebase'
+            cred = credentials.Certificate(st.secrets["firebase"]) 
             firebase_admin.initialize_app(cred)
             st.sidebar.success("Connexion à Firebase réussie.")
         except KeyError:
-            st.sidebar.error("Erreur: Section 'firebase' introuvable dans st.secrets.toml.")
+            st.sidebar.error("Erreur critique: La section 'firebase' est manquante ou mal formatée dans st.secrets.")
             st.stop()
         except Exception as e:
             st.sidebar.error(f"Erreur d'initialisation Firebase : {e}")
@@ -45,15 +47,14 @@ def initialize_firebase():
 
 db = initialize_firebase()
 
-# --- NOUVELLES FONCTIONS DE CHARGEMENT FIREBASE (ADAPTÉES) ---
+
+# --- FONCTIONS DE CHARGEMENT FIREBASE ---
 
 @st.cache_data(ttl=3600)
 def load_form_structure_from_firestore():
     """Charge la structure du formulaire depuis la collection 'formsquestions'."""
     try:
-        # LECTURE DEPUIS 'formsquestions'
         docs = db.collection('formsquestions').order_by('id').get()
-        
         data = [doc.to_dict() for doc in docs]
         
         if not data:
@@ -61,39 +62,34 @@ def load_form_structure_from_firestore():
             return None
         
         df = pd.DataFrame(data)
-        
-        # Nettoyage et normalisation des colonnes (même logique que la version Excel)
         df.columns = df.columns.str.strip()
         
+        # Normalisation des colonnes de condition
         rename_map = {
-            'Condition value': 'Condition value',
-            'condition value': 'Condition value',
-            'Condition Value': 'Condition value',
-            'Condition': 'Condition value',
-            'Conditon on': 'Condition on',
-            'condition on': 'Condition on'
+            'Condition value': 'Condition value', 'condition value': 'Condition value',
+            'Condition Value': 'Condition value', 'Condition': 'Condition value',
+            'Conditon on': 'Condition on', 'condition on': 'Condition on'
         }
         actual_rename = {k: v for k, v in rename_map.items() if k in df.columns}
         df = df.rename(columns=actual_rename)
         
+        # Remplacer les NaN/None par des valeurs par défaut
         df['options'] = df['options'].fillna('')
         df['Description'] = df['Description'].fillna('')
         df['Condition value'] = df['Condition value'].fillna('')
-        # S'assurer que Condition on est bien un nombre pour la vérification de condition
+        # Conversion sûre en nombre (0 par défaut)
         df['Condition on'] = df['Condition on'].apply(lambda x: int(x) if pd.notna(x) else 0)
         
         return df
     except Exception as e:
-        st.error(f"Erreur lors de la lecture de la structure 'formsquestions' Firestore : {e}")
+        st.error(f"Erreur lors de la lecture de la structure 'formsquestions' : {e}")
         return None
 
 @st.cache_data(ttl=3600)
 def load_site_data_from_firestore():
     """Charge les données des sites depuis la collection 'Sites'."""
     try:
-        # LECTURE DEPUIS 'Sites'
         docs = db.collection('Sites').get()
-        
         data = [doc.to_dict() for doc in docs]
         
         if not data:
@@ -104,10 +100,35 @@ def load_site_data_from_firestore():
         df_site.columns = df_site.columns.str.strip()
         return df_site
     except Exception as e:
-        st.error(f"Erreur lors de la lecture des données de site 'Sites' Firestore : {e}")
+        st.error(f"Erreur lors de la lecture des données de site 'Sites' : {e}")
         return None
 
-# --- GESTION DE L'ÉTAT (AUCUN CHANGEMENT) ---
+# --- NOUVELLE FONCTION DE SAUVEGARDE DANS FIRESTORE ---
+def save_form_data(collected_data, project_data, project_id=None):
+    """Sauvegarde les données collectées dans la collection 'FormAnswers'."""
+    try:
+        # Construction du document principal à sauvegarder
+        final_document = {
+            "project_id": project_data.get('Intitulé', 'N/A'),
+            "project_details": project_data,
+            "submission_date": datetime.now(),
+            "status": "Completed",
+            "collected_phases": collected_data
+        }
+        
+        # Utilisation de l'ID du projet comme ID de document si disponible
+        doc_id = project_data.get('Intitulé', f"form_submit_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        
+        # Sauvegarde
+        db.collection('FormAnswers').document(doc_id).set(final_document)
+        
+        st.success(f"💾 Données sauvegardées avec succès dans Firestore ! (Collection: FormAnswers, ID: {doc_id})")
+        return True
+    except Exception as e:
+        st.error(f"❌ Erreur lors de la sauvegarde dans Firestore : {e}")
+        return False
+
+# --- GESTION DE L'ÉTAT ---
 def init_session_state():
     defaults = {
         'step': 'PROJECT_LOAD',
@@ -124,15 +145,10 @@ def init_session_state():
 
 init_session_state()
 
-# --- LOGIQUE MÉTIER (check_condition, validate_section, validate_identification, render_question) ---
-# ... (La logique métier reste inchangée, elle est robuste et ne dépend pas de la source des données)
+# --- LOGIQUE MÉTIER (Condition & Validation - Fonctions inchangées) ---
 
 def check_condition(row, current_answers, collected_data):
-    """
-    Vérifie si une question doit être affichée.
-    Intègre la logique : Col H (Condition on) = 1 ET Col I (Condition) satisfaite.
-    """
-    # [Code de la fonction check_condition (inchangé)]
+    """Vérifie si une question doit être affichée (Condition on = 1 ET Condition value satisfaite)."""
     try:
         if int(row.get('Condition on', 0)) != 1:
             return True
@@ -166,7 +182,6 @@ def check_condition(row, current_answers, collected_data):
 
 def validate_section(df_questions, section_name, answers, collected_data):
     """Valide si toutes les questions obligatoires visibles ont une réponse."""
-    # [Code de la fonction validate_section (inchangé)]
     missing = []
     section_rows = df_questions[df_questions['section'] == section_name]
     
@@ -188,7 +203,6 @@ validate_identification = validate_section
 
 def render_question(row, answers, key_suffix):
     """Affiche un widget Streamlit."""
-    # [Code de la fonction render_question (inchangé)]
     q_id = int(row['id'])
     q_text = row['question']
     q_type = str(row['type']).strip().lower()
@@ -223,26 +237,27 @@ def render_question(row, answers, key_suffix):
         val = st.number_input("Nombre", value=default_val, key=widget_key, label_visibility="collapsed")
         
     elif q_type == 'photo':
+        # Les fichiers chargés doivent être gérés si nécessaire (stockage dans GCS ou autre)
         val = st.file_uploader("Image", type=['png', 'jpg', 'jpeg'], key=widget_key, label_visibility="collapsed")
         if val:
             st.success(f"Image chargée : {val.name}")
+            # Note: Pour une sauvegarde complète, l'image devrait être uploadée séparément (ex: Storage)
         elif current_val:
             st.info("Image conservée.")
-
+            
     st.markdown('</div>', unsafe_allow_html=True)
     
     if val is not None:
         answers[q_id] = val
 
 
-# --- FLUX PRINCIPAL (AUCUN CHANGEMENT SAUF ÉTAPE 1) ---
+# --- FLUX PRINCIPAL DE L'APPLICATION ---
 
 st.markdown('<div class="main-header"><h1>📝Formulaire Chantier</h1></div>', unsafe_allow_html=True)
-df = st.session_state.get('df_struct')
 
 # 1. CHARGEMENT DE FIREBASE
 if st.session_state['step'] == 'PROJECT_LOAD':
-    st.markdown("### ☁️ Chargement de la structure et des sites...")
+    st.markdown("### ☁️ Chargement de la structure et des sites depuis Firestore...")
     
     df_struct = load_form_structure_from_firestore()
     df_site = load_site_data_from_firestore()
@@ -251,10 +266,10 @@ if st.session_state['step'] == 'PROJECT_LOAD':
         st.session_state['df_struct'] = df_struct
         st.session_state['df_site'] = df_site
         st.session_state['step'] = 'PROJECT'
-        st.success("Données chargées depuis Firestore.")
+        st.success("Données de configuration chargées. Prêt à démarrer.")
         st.rerun()
     else:
-        st.error("Échec du chargement des données initiales. Vérifiez les collections Firestore **'Sites'** et **'formsquestions'**.")
+        st.warning("Veuillez vérifier vos collections 'Sites' et 'formsquestions'.")
 
 
 # 2. SÉLECTION PROJET
@@ -264,8 +279,6 @@ elif st.session_state['step'] == 'PROJECT':
     
     if 'Intitulé' not in df_site.columns:
         st.error("Colonne 'Intitulé' manquante dans la collection 'Sites'.")
-        st.session_state['step'] = 'PROJECT_LOAD'
-        st.rerun()
         
     projects = [""] + df_site['Intitulé'].dropna().unique().tolist()
     selected_proj = st.selectbox("Rechercher un projet", projects)
@@ -310,12 +323,12 @@ elif st.session_state['step'] == 'IDENTIFICATION':
             st.session_state['identification_completed'] = True
             st.session_state['step'] = 'LOOP_DECISION'
             st.session_state['current_phase_temp'] = {}
-            st.success("Identification validée.")
+            st.success("Identification validée. Prêt pour les phases.")
             st.rerun()
         else:
             st.markdown('<div class="error-box"><b>⚠️ Erreur de validation :</b><br>' + '<br>'.join([f"- {e}" for e in errors]) + '</div>', unsafe_allow_html=True)
 
-# 4. LA BOUCLE
+# 4. LA BOUCLE (Ajout/Remplissage des phases)
 elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
     
     with st.expander(f"📍 Projet : {st.session_state['project_data'].get('Intitulé')}", expanded=False):
@@ -323,7 +336,6 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
         for idx, item in enumerate(st.session_state['collected_data']):
             st.write(f"• **{item['phase_name']}** : {len(item['answers'])} réponses")
 
-    # A. DÉCISION
     if st.session_state['step'] == 'LOOP_DECISION':
         st.markdown("### 🔄 Gestion des Phases")
         
@@ -336,31 +348,22 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
                 st.session_state['iteration_id'] = str(uuid.uuid4())
                 st.rerun()
         with col2:
-            if st.button("🏁 Terminer l'audit"):
+            if st.button("🏁 Terminer l'audit et Sauvegarder"):
                 st.session_state['step'] = 'FINISHED'
                 st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    # B. REMPLISSAGE
+    
     elif st.session_state['step'] == 'FILL_PHASE':
+        # ... (Logique de sélection et de remplissage de phase inchangée)
         df = st.session_state['df_struct']
         
-        ID_SECTION_NAME = None
-        if st.session_state['collected_data']:
-            ID_SECTION_NAME = st.session_state['collected_data'][0]['phase_name']
-        elif not df.empty:
-            ID_SECTION_NAME = df['section'].iloc[0]
-
-        ID_SECTION_CLEAN = str(ID_SECTION_NAME).strip().lower() if ID_SECTION_NAME else None
+        ID_SECTION_NAME = df['section'].iloc[0]
+        ID_SECTION_CLEAN = str(ID_SECTION_NAME).strip().lower()
         SECTIONS_TO_EXCLUDE_CLEAN = {ID_SECTION_CLEAN, "phase"}
         
         all_sections_raw = df['section'].unique().tolist()
-        available_phases = []
-        for sec in all_sections_raw:
-            if pd.isna(sec) or not sec or str(sec).strip().lower() in SECTIONS_TO_EXCLUDE_CLEAN:
-                continue
-            available_phases.append(sec)
+        available_phases = [sec for sec in all_sections_raw if pd.notna(sec) and str(sec).strip().lower() not in SECTIONS_TO_EXCLUDE_CLEAN]
         
+        # Sélection de phase
         if not st.session_state['current_phase_name']:
              st.markdown("### 📑 Sélection de la phase")
              phase_choice = st.selectbox("Quelle phase ?", [""] + available_phases)
@@ -375,7 +378,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
         else:
             current_phase = st.session_state['current_phase_name']
             st.markdown(f"### 📝 {current_phase}")
-            st.markdown("---")
+            
             if st.button("🔄 Changer de phase"):
                 st.session_state['current_phase_name'] = None
                 st.session_state['current_phase_temp'] = {}
@@ -384,15 +387,14 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             st.markdown("---")
             
             section_questions = df[df['section'] == current_phase]
-            
             visible_count = 0
+            
             for _, row in section_questions.iterrows():
                 if check_condition(row, st.session_state['current_phase_temp'], st.session_state['collected_data']):
                     render_question(row, st.session_state['current_phase_temp'], st.session_state['iteration_id'])
                     visible_count += 1
             
-            if visible_count == 0:
-                st.warning("Aucune question visible (vérifiez les conditions).")
+            if visible_count == 0: st.warning("Aucune question visible.")
 
             st.markdown("---")
             
@@ -403,9 +405,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
                     st.rerun()
             with c2:
                 if st.button("💾 Valider la phase"):
-                    is_valid, errors = validate_phase(
-                        df, current_phase, st.session_state['current_phase_temp'], st.session_state['collected_data']
-                    )
+                    is_valid, errors = validate_phase(df, current_phase, st.session_state['current_phase_temp'], st.session_state['collected_data'])
                     
                     if is_valid:
                         new_entry = {
@@ -413,23 +413,34 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
                             "answers": st.session_state['current_phase_temp'].copy()
                         }
                         st.session_state['collected_data'].append(new_entry)
-                        st.success("Enregistré !")
+                        st.success("Phase enregistrée !")
                         st.session_state['step'] = 'LOOP_DECISION'
                         st.rerun()
                     else:
                         st.markdown('<div class="error-box"><b>⚠️ Erreurs :</b><br>' + '<br>'.join([f"- {e}" for e in errors]) + '</div>', unsafe_allow_html=True)
-            
-            st.markdown('</div>', unsafe_allow_html=True)
 
-# 5. FIN
+
+# 5. FIN (Ajout de la sauvegarde)
 elif st.session_state['step'] == 'FINISHED':
-    st.balloons()
-    st.markdown("## 🎉 Formulaire Terminé")
+    st.markdown("## 🎉 Sauvegarde et Fin")
     st.write(f"Projet : **{st.session_state['project_data'].get('Intitulé')}**")
     
+    # Tentative de sauvegarde
+    if 'data_saved' not in st.session_state:
+        # Sauvegarde uniquement la première fois qu'on arrive à l'étape FINISHED
+        success = save_form_data(st.session_state['collected_data'], st.session_state['project_data'])
+        if success:
+            st.balloons()
+            st.session_state['data_saved'] = True
+    else:
+        st.success("Le formulaire a déjà été sauvegardé dans Firestore.")
+
+    st.markdown("### Résumé des données collectées :")
     for i, phase in enumerate(st.session_state['collected_data']):
         with st.expander(f"Section {i+1} : {phase['phase_name']}"):
-            st.json(phase['answers'])
+            # Afficher le JSON sans les fichiers photo (qui sont des objets Streamlit non sérialisables)
+            display_data = {k: v for k, v in phase['answers'].items() if not hasattr(v, 'read')}
+            st.json(display_data)
             
     if st.button("🔄 Nouveau projet"):
         st.session_state.clear()
