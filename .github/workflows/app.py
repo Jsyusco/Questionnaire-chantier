@@ -6,6 +6,9 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime
 
+# Importation spécifique pour la robustesse (création de colonnes manquantes)
+import numpy as np
+
 # --- CONFIGURATION ET STYLE ---
 st.set_page_config(page_title="Formulaire Dynamique - Firestore", layout="centered")
 
@@ -29,10 +32,10 @@ st.markdown("""
 # --- INITIALISATION FIREBASE SÉCURISÉE ---
 def initialize_firebase():
     """Initialise Firebase avec les secrets individuels et force l'ID du projet."""
+    # S'assure que l'application n'est initialisée qu'une seule fois
     if not firebase_admin._apps:
         try:
             # Reconstruction manuelle du dictionnaire de crédits
-            # Cela contourne les problèmes de sérialisation de Streamlit Cloud
             cred_dict = {
                 "type": st.secrets["firebase_type"],
                 "project_id": st.secrets["firebase_project_id"],
@@ -47,9 +50,7 @@ def initialize_firebase():
                 "universe_domain": st.secrets["firebase_universe_domain"],
             }
             
-            # Récupération de l'ID projet pour forcer l'init
             project_id = cred_dict["project_id"]
-            
             cred = credentials.Certificate(cred_dict)
             
             # Initialisation avec projectId explicite (Solution au bug 403)
@@ -58,7 +59,7 @@ def initialize_firebase():
             st.sidebar.success("Connexion BDD réussie 🟢")
         
         except KeyError as e:
-            st.sidebar.error(f"Erreur de configuration Secrets : {e}")
+            st.sidebar.error(f"Erreur de configuration Secrets : Clé manquante ({e})")
             st.stop()
         except Exception as e:
             st.sidebar.error(f"Erreur de connexion Firebase : {e}")
@@ -66,42 +67,53 @@ def initialize_firebase():
     
     return firestore.client()
 
-# Initialisation globale de la DB
+# Initialisation globale de la DB au lancement
 db = initialize_firebase()
 
 # --- FONCTIONS DE CHARGEMENT ET SAUVEGARDE FIREBASE ---
 
 @st.cache_data(ttl=3600)
 def load_form_structure_from_firestore():
-    """Charge la structure depuis la collection 'formsquestions'."""
+    """Charge la structure depuis la collection 'formsquestions' (avec correction KeyError)."""
     try:
         docs = db.collection('formsquestions').order_by('id').get()
         data = [doc.to_dict() for doc in docs]
         
         if not data:
+            st.error("La collection 'formsquestions' est vide.")
             return None
         
         df = pd.DataFrame(data)
         df.columns = df.columns.str.strip()
         
-        # Mapping pour standardiser les colonnes (comme dans votre version Excel)
+        # 1. Tentative de renommage standard
         rename_map = {
-            'Condition value': 'Condition value', 'condition value': 'Condition value',
+            'Conditon value': 'Condition value', 'condition value': 'Condition value',
             'Condition Value': 'Condition value', 'Condition': 'Condition value',
             'Conditon on': 'Condition on', 'condition on': 'Condition on'
         }
         actual_rename = {k: v for k, v in rename_map.items() if k in df.columns}
         df = df.rename(columns=actual_rename)
         
-        # Gestion des valeurs nulles
+        # 2. CORRECTION CRUCIALE : Création des colonnes manquantes pour éviter le KeyError
+        expected_cols = ['options', 'Description', 'Condition value', 'Condition on', 'section', 'id', 'question', 'type', 'obligatoire']
+        for col in expected_cols:
+            if col not in df.columns:
+                # Créer la colonne avec des valeurs nulles (None/NaN)
+                df[col] = np.nan 
+        
+        # 3. Nettoyage des données (maintenant sécurisé)
         df['options'] = df['options'].fillna('')
         df['Description'] = df['Description'].fillna('')
         df['Condition value'] = df['Condition value'].fillna('')
-        df['Condition on'] = df['Condition on'].apply(lambda x: int(x) if pd.notna(x) else 0)
+        
+        # Conversion sécurisée de 'Condition on' en entier (ou 0 par défaut)
+        df['Condition on'] = df['Condition on'].apply(lambda x: int(x) if pd.notna(x) and str(x).isdigit() else 0)
         
         return df
     except Exception as e:
         st.error(f"Erreur lecture 'formsquestions': {e}")
+        st.exception(e) # Affiche l'erreur complète pour le débogage
         return None
 
 @st.cache_data(ttl=3600)
@@ -112,20 +124,22 @@ def load_site_data_from_firestore():
         data = [doc.to_dict() for doc in docs]
         
         if not data:
+            st.error("La collection 'Sites' est vide.")
             return None
             
         df_site = pd.DataFrame(data)
         df_site.columns = df_site.columns.str.strip()
+        
         return df_site
     except Exception as e:
         st.error(f"Erreur lecture 'Sites': {e}")
+        st.exception(e) 
         return None
 
 def save_form_data(collected_data, project_data):
     """Sauvegarde les données finales dans 'FormAnswers'."""
     try:
         # Nettoyage des données (suppression des objets fichiers non sérialisables pour le JSON)
-        # Note : Les images doivent idéalement être uploadées sur Storage séparément.
         cleaned_data = []
         for phase in collected_data:
             clean_phase = {
@@ -133,8 +147,7 @@ def save_form_data(collected_data, project_data):
                 "answers": {}
             }
             for k, v in phase["answers"].items():
-                # On ne sauvegarde pas l'objet UploadedFile dans le JSON Firestore
-                if hasattr(v, 'read'): 
+                if hasattr(v, 'read'): # Si c'est un objet fichier (UploadedFile)
                     clean_phase["answers"][str(k)] = f"Image chargée (Nom: {v.name})"
                 else:
                     clean_phase["answers"][str(k)] = v
@@ -149,7 +162,7 @@ def save_form_data(collected_data, project_data):
         }
         
         # Création d'un ID unique
-        doc_id_base = str(project_data.get('Intitulé', 'form')).replace(" ", "_")[:20]
+        doc_id_base = str(project_data.get('Intitulé', 'form')).replace(" ", "_").replace("/", "_")[:20]
         doc_id = f"{doc_id_base}_{datetime.now().strftime('%Y%m%d_%H%M')}_{str(uuid.uuid4())[:6]}"
         
         db.collection('FormAnswers').document(doc_id).set(final_document)
@@ -160,7 +173,7 @@ def save_form_data(collected_data, project_data):
 # --- GESTION DE L'ÉTAT ---
 def init_session_state():
     defaults = {
-        'step': 'PROJECT_LOAD', # Démarrage direct sur le chargement BDD
+        'step': 'PROJECT_LOAD',
         'project_data': None,
         'collected_data': [],
         'current_phase_temp': {},
@@ -176,7 +189,6 @@ def init_session_state():
 init_session_state()
 
 # --- LOGIQUE MÉTIER (CHECK CONDITION & VALIDATION) ---
-# Cette partie est identique à votre code d'origine pour conserver la logique
 
 def check_condition(row, current_answers, collected_data):
     """Vérifie si une question doit être affichée."""
@@ -263,7 +275,9 @@ st.markdown('<div class="main-header"><h1>📝Formulaire Chantier (Cloud)</h1></
 
 # 1. CHARGEMENT DEPUIS FIRESTORE
 if st.session_state['step'] == 'PROJECT_LOAD':
-    with st.spinner("Chargement de la configuration depuis Firestore..."):
+    st.info("Tentative de chargement de la structure des formulaires...")
+    with st.spinner("Chargement en cours..."):
+        # Les fonctions @st.cache_data garantissent qu'on ne fait pas de requête Firestore à chaque rerun
         df_struct = load_form_structure_from_firestore()
         df_site = load_site_data_from_firestore()
         
@@ -273,10 +287,12 @@ if st.session_state['step'] == 'PROJECT_LOAD':
             st.session_state['step'] = 'PROJECT'
             st.rerun()
         else:
-            st.error("Impossible de charger les données. Vérifiez les collections 'formsquestions' et 'Sites'.")
-            if st.button("Réessayer"):
+            st.error("Impossible de charger les données. Veuillez vérifier les collections 'formsquestions' et 'Sites' dans la console Firebase et la console Streamlit pour les logs d'erreurs détaillés.")
+            if st.button("Réessayer le chargement"):
+                # Force le rechargement en effaçant le cache
                 load_form_structure_from_firestore.clear()
                 load_site_data_from_firestore.clear()
+                st.session_state['step'] = 'PROJECT_LOAD' # Assure le retour à cette étape
                 st.rerun()
 
 # 2. SÉLECTION PROJET
@@ -402,7 +418,6 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             
             visible_count = 0
             for _, row in section_questions.iterrows():
-                # Appel de la logique conditionnelle
                 if check_condition(row, st.session_state['current_phase_temp'], st.session_state['collected_data']):
                     render_question(row, st.session_state['current_phase_temp'], st.session_state['iteration_id'])
                     visible_count += 1
@@ -460,7 +475,6 @@ elif st.session_state['step'] == 'FINISHED':
 
     for i, phase in enumerate(st.session_state['collected_data']):
         with st.expander(f"Section {i+1} : {phase['phase_name']}"):
-            # Affichage propre sans objets file
             clean_display = {k: (v.name if hasattr(v, 'name') else v) for k, v in phase['answers'].items()}
             st.json(clean_display)
             
