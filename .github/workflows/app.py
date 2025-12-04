@@ -9,6 +9,7 @@ import numpy as np
 import zipfile
 import io
 
+
 # --- CONFIGURATION ET STYLE (inchangés) ---
 st.set_page_config(page_title="Formulaire Dynamique - Firestore", layout="centered")
 
