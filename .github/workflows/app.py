@@ -17,7 +17,7 @@ st.markdown("""
     .stApp { background-color: #121212; color: #e0e0e0; }
     .main-header { background-color: #1e1e1e; padding: 20px; border-radius: 10px; margin-bottom: 20px; text-align: center; border-bottom: 3px solid #4285F4; }
     .block-container { max-width: 800px; }
-    .phase-block { background-color: #1e1e1e; padding: 25px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #333; }
+    .phase-block { background-color: #1e1e1e; padding: 25px; border-radius: 12px; margin-bottom: 20px; border: 10px solid #333; }
     .question-card { background-color: transparent; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #4285F4; }
     h1, h2, h3 { color: #ffffff !important; }
     .description { font-size: 0.9em; color: #aaaaaa; font-style: italic; margin-bottom: 10px; }
