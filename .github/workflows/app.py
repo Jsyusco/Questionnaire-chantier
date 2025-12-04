@@ -553,7 +553,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
                 # Utilisation de Markdown pour un affichage "clé : valeur" minimaliste
                 st.markdown(f"**{renamed_key}** : {value}")
         
-        st.markdown("---") # Séparateur visuel
+   
 
         # Ligne 2 : Les Nouveaux Déploiements (Ordre 4, 5, 6)
         st.markdown("#### 2. Déploiement Standard")
