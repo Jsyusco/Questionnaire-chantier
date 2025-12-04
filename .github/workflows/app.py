@@ -49,7 +49,7 @@ DISPLAY_GROUPS = [
     # Ligne 2 : Déploiements Standard (Ordre 4, 5, 6)
     ['L [Plan de Déploiement]', 'R [Plan de Déploiement]', 'UR [Plan de Déploiement]'],
     # Ligne 3 : Déploiements Pré-équipés (Ordre 7, 8, 9)
-    ['Pré L [Plan de Déploiement]', 'Pré UR [Plan de Déploiement]', 'Pré R [Plan de Déploiement]'],
+    ['Pré L [Plan de Déploiement]', 'Pré R [Plan de Déploiement]','Pré UR [Plan de Déploiement]' ],
 ]
 
 # --- INITIALISATION FIREBASE SÉCURISÉE (inchangée) ---
