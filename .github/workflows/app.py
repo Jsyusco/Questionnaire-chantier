@@ -1,4 +1,4 @@
-# --- IMPORTS ET PRÉPARATION (inchangés) ---
+# --- IMPORTS ET PRÉPARATION ---
 import streamlit as st
 import pandas as pd
 import uuid
@@ -63,7 +63,7 @@ def initialize_firebase():
 
 db = initialize_firebase()
 
-# --- FONCTIONS DE CHARGEMENT ET SAUVEGARDE FIREBASE ---
+# --- FONCTIONS DE CHARGEMENT ET SAUVEGARDE FIREBASE (modifiées pour les listes de fichiers) ---
 
 @st.cache_data(ttl=3600)
 def load_form_structure_from_firestore():
@@ -132,7 +132,7 @@ def load_site_data_from_firestore():
         return None
 
 def save_form_data(collected_data, project_data):
-    """[MODIFICATION] Gère les listes de fichiers pour la sauvegarde Firestore."""
+    """Gère les listes de fichiers pour la sauvegarde Firestore."""
     try:
         cleaned_data = []
         for phase in collected_data:
@@ -141,7 +141,7 @@ def save_form_data(collected_data, project_data):
                 "answers": {}
             }
             for k, v in phase["answers"].items():
-                # [MODIFICATION] Gère une liste de fichiers au lieu d'un seul
+                # Gère une liste de fichiers au lieu d'un seul
                 if isinstance(v, list) and v and hasattr(v[0], 'read'): 
                     # C'est une liste d'objets FileUploader (Photos)
                     file_names = ", ".join([f.name for f in v])
@@ -173,10 +173,10 @@ def save_form_data(collected_data, project_data):
     except Exception as e:
         return False, str(e)
 
-# --- FONCTIONS EXPORT (MODIFIÉES) ---
+# --- FONCTIONS EXPORT (modifiées pour les listes de fichiers) ---
 
 def create_csv_export(collected_data, df_struct):
-    """[MODIFICATION] Gère les listes de fichiers dans l'export CSV."""
+    """Gère les listes de fichiers dans l'export CSV et ajoute l'ID/dates."""
     rows = []
     
     submission_id = st.session_state.get('submission_id', 'N/A')
@@ -197,7 +197,7 @@ def create_csv_export(collected_data, df_struct):
             
             # Gérer la valeur (fichier vs texte)
             if isinstance(val, list) and val and hasattr(val[0], 'name'):
-                # [MODIFICATION] Gère une liste de fichiers
+                # Gère une liste de fichiers
                 file_names = ", ".join([f.name for f in val])
                 final_val = f"[Fichiers] {len(val)} photos: {file_names}"
             elif hasattr(val, 'name'):
@@ -220,7 +220,7 @@ def create_csv_export(collected_data, df_struct):
     return df_export.to_csv(index=False, sep=';', encoding='utf-8-sig')
 
 def create_zip_export(collected_data):
-    """[MODIFICATION] Gère l'itération sur la liste de fichiers pour le ZIP."""
+    """Gère l'itération sur la liste de fichiers pour le ZIP."""
     zip_buffer = io.BytesIO()
     has_files = False
     
@@ -251,7 +251,7 @@ def create_zip_export(collected_data):
 
 # --- GESTION DE L'ÉTAT (inchangée) ---
 def init_session_state():
-    """Ajout de l'ID de soumission et de l'heure de début."""
+    """Initialisation de l'état de la session, incluant ID et dates."""
     defaults = {
         'step': 'PROJECT_LOAD',
         'project_data': None,
@@ -271,7 +271,7 @@ def init_session_state():
 
 init_session_state()
 
-# --- LOGIQUE MÉTIER (inchangée) ---
+# --- LOGIQUE MÉTIER (mise à jour de la validation pour gérer les listes) ---
 
 def check_condition(row, current_answers, collected_data):
     # Logique de condition inchangée
@@ -298,7 +298,7 @@ def check_condition(row, current_answers, collected_data):
     except Exception: return True
 
 def validate_section(df_questions, section_name, answers, collected_data):
-    # Logique de validation inchangée
+    # La validation doit vérifier si la LISTE est vide pour les questions 'photo' obligatoires
     missing = []
     section_rows = df_questions[df_questions['section'] == section_name]
     for _, row in section_rows.iterrows():
@@ -308,7 +308,6 @@ def validate_section(df_questions, section_name, answers, collected_data):
             q_id = int(row['id'])
             val = answers.get(q_id)
             
-            # [MODIFICATION] La validation doit vérifier si la LISTE est vide pour les photos
             if isinstance(val, list):
                 if not val:
                     missing.append(f"Question {q_id} : {row['question']} (photo(s) manquante(s))")
@@ -319,10 +318,10 @@ def validate_section(df_questions, section_name, answers, collected_data):
 validate_phase = validate_section
 validate_identification = validate_section
 
-# --- COMPOSANTS UI (MODIFIÉ) ---
+# --- COMPOSANTS UI (modifiés pour les photos multiples) ---
 
 def render_question(row, answers, phase_name, key_suffix, loop_index):
-    """[MODIFICATION] Utilise 'accept_multiple_files=True' pour les photos."""
+    """Utilise 'accept_multiple_files=True' pour les photos."""
     q_id = int(row['id'])
     q_text = row['question']
     q_type = str(row['type']).strip().lower()
@@ -355,7 +354,7 @@ def render_question(row, answers, phase_name, key_suffix, loop_index):
         val = st.number_input("Nombre", value=default_val, key=widget_key, label_visibility="collapsed")
         
     elif q_type == 'photo':
-        # [MODIFICATION] Ajout de accept_multiple_files=True
+        # Ajout de accept_multiple_files=True
         val = st.file_uploader(
             "Images", 
             type=['png', 'jpg', 'jpeg'], 
@@ -375,14 +374,13 @@ def render_question(row, answers, phase_name, key_suffix, loop_index):
     
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Le FileUploader retourne une liste de fichiers (ou None/[])
+    # Stockage de la valeur (liste de fichiers ou autre)
     if val is not None:
          answers[q_id] = val 
     elif current_val is not None:
-        # Si l'utilisateur n'a pas interagi, on garde les fichiers qui étaient là
         answers[q_id] = current_val
 
-# --- FLUX PRINCIPAL (inchangé) ---
+# --- FLUX PRINCIPAL ---
 
 st.markdown('<div class="main-header"><h1>📝Formulaire Chantier (Cloud)</h1></div>', unsafe_allow_html=True)
 
@@ -412,12 +410,32 @@ elif st.session_state['step'] == 'PROJECT':
     if 'Intitulé' not in df_site.columns:
         st.error("Colonne 'Intitulé' manquante.")
     else:
-        projects = [""] + df_site['Intitulé'].dropna().unique().tolist()
-        selected_proj = st.selectbox("Rechercher un projet", projects)
+        
+        # --- [MODIFICATION] Recherche par saisie (3 caractères minimum) ---
+        search_term = st.text_input("Rechercher un projet (3 caractères minimum)", key="project_search_input").strip()
+
+        filtered_projects = []
+        selected_proj = None
+        
+        if len(search_term) >= 3:
+            mask = df_site['Intitulé'].str.contains(search_term, case=False, na=False)
+            filtered_projects_df = df_site[mask]
+            
+            filtered_projects = [""] + filtered_projects_df['Intitulé'].dropna().unique().tolist()
+            
+            if filtered_projects:
+                selected_proj = st.selectbox("Résultats de la recherche", filtered_projects)
+            else:
+                st.warning(f"Aucun projet trouvé pour **'{search_term}'**.")
+        
+        elif len(search_term) > 0 and len(search_term) < 3:
+            st.info("Veuillez entrer au moins **3 caractères** pour lancer la recherche.")
+        
+        # --- Fin Modification Recherche ---
         
         if selected_proj:
             row = df_site[df_site['Intitulé'] == selected_proj].iloc[0]
-            st.info(f"Projet sélectionné : {selected_proj} ")
+            st.info(f"Projet sélectionné : **{selected_proj}**")
             
             if st.button("✅ Démarrer l'identification"):
                 st.session_state['project_data'] = row.to_dict()
