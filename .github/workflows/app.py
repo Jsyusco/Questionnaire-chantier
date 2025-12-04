@@ -536,43 +536,49 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
     project_intitule = st.session_state['project_data'].get('Intitulé', 'Projet Inconnu')
     with st.expander(f"📍 Projet : {project_intitule}", expanded=False):
         
-        # --- NOUVEL AFFICHAGE STRUCTURÉ DU PROJET (Remplacement) ---
+        # --- DÉBUT AFFICHAGE COMPACT DU PROJET ---
         project_details = st.session_state['project_data']
 
         st.write("--- Détails du Projet Sélectionné ---")
         
         # Ligne 1 : Les Fournisseurs (Ordre 1, 2, 3)
         st.markdown("#### 1. Identification & Fournisseurs")
-        cols1 = st.columns(3)
+        # Création de 3 colonnes de taille égale
+        cols1 = st.columns([1, 1, 1]) 
         fields_l1 = DISPLAY_GROUPS[0]
         for i, field_key in enumerate(fields_l1):
             renamed_key = PROJECT_RENAME_MAP.get(field_key, field_key)
-            # Utilise .get() pour gérer les clés qui pourraient ne pas exister
             value = project_details.get(field_key, 'N/A')
             with cols1[i]:
-                # st.metric est idéal pour afficher des paires label/valeur
-                st.metric(label=renamed_key, value=value)
+                # Utilisation de Markdown pour un affichage "clé : valeur" minimaliste
+                st.markdown(f"**{renamed_key}** : {value}")
         
+        st.markdown("---") # Séparateur visuel
+
         # Ligne 2 : Les Nouveaux Déploiements (Ordre 4, 5, 6)
         st.markdown("#### 2. Déploiement Standard")
-        cols2 = st.columns(3)
+        cols2 = st.columns([1, 1, 1])
         fields_l2 = DISPLAY_GROUPS[1]
         for i, field_key in enumerate(fields_l2):
             renamed_key = PROJECT_RENAME_MAP.get(field_key, field_key)
             value = project_details.get(field_key, 'N/A')
             with cols2[i]:
-                st.metric(label=renamed_key, value=value)
+                st.markdown(f"**{renamed_key}** : {value}")
+
+        st.markdown("---")
 
         # Ligne 3 : Les Déploiements Pré-équipés (Ordre 7, 8, 9)
         st.markdown("#### 3. Déploiement Pré-équipé")
-        cols3 = st.columns(3)
+        cols3 = st.columns([1, 1, 1])
         fields_l3 = DISPLAY_GROUPS[2]
         for i, field_key in enumerate(fields_l3):
             renamed_key = PROJECT_RENAME_MAP.get(field_key, field_key)
             value = project_details.get(field_key, 'N/A')
             with cols3[i]:
-                st.metric(label=renamed_key, value=value)
-        # --- FIN NOUVEL AFFICHAGE ---
+                st.markdown(f"**{renamed_key}** : {value}")
+
+        st.markdown("---") 
+        # --- FIN AFFICHAGE COMPACT DU PROJET ---
         
         st.write("--- Phases et Identification déjà complétées ---")
         for idx, item in enumerate(st.session_state['collected_data']):
