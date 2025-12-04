@@ -436,7 +436,7 @@ elif st.session_state['step'] == 'PROJECT':
         st.error("Colonne 'Intitulé' manquante.")
     else:
         
-        search_term = st.text_input("Rechercher un projet (3 caractères minimum)", key="project_search_input").strip()
+        search_term = st.text_input("Rechercher un projet (Compléter 3 caractères du nom de la ville minimum)", key="project_search_input").strip()
 
         filtered_projects = []
         selected_proj = None
