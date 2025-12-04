@@ -65,7 +65,7 @@ db = initialize_firebase()
 
 @st.cache_data(ttl=3600)
 def load_form_structure_from_firestore():
-    """Charge la structure depuis la collection 'formsquestions'."""
+    """Charge la structure depuis la collection 'formsquestions' (avec correction d'encodage)."""
     try:
         docs = db.collection('formsquestions').order_by('id').get()
         data = [doc.to_dict() for doc in docs]
@@ -85,16 +85,31 @@ def load_form_structure_from_firestore():
         actual_rename = {k: v for k, v in rename_map.items() if k in df.columns}
         df = df.rename(columns=actual_rename)
         
-        # Création des colonnes manquantes
         expected_cols = ['options', 'Description', 'Condition value', 'Condition on', 'section', 'id', 'question', 'type', 'obligatoire']
         for col in expected_cols:
             if col not in df.columns:
                 df[col] = np.nan 
         
+        # Nettoyage des données
         df['options'] = df['options'].fillna('')
         df['Description'] = df['Description'].fillna('')
         df['Condition value'] = df['Condition value'].fillna('')
         df['Condition on'] = df['Condition on'].apply(lambda x: int(x) if pd.notna(x) and str(x).isdigit() else 0)
+        
+        # >>> DÉBUT DE LA CORRECTION D'ENCODAGE SUPPLÉMENTAIRE <<<
+        for col in df.select_dtypes(include=['object']).columns:
+            # 1. Conversion en chaîne et suppression des espaces blancs
+            df[col] = df[col].astype(str).str.strip()
+            
+            # 2. Application du nettoyage de l'encodage pour neutraliser les erreurs
+            try:
+                # Ceci tente de forcer l'interprétation en tant que chaîne Unicode propre
+                # Encodage en UTF-8 puis décodage pour supprimer les caractères invalides ou invisibles
+                df[col] = df[col].apply(lambda x: x.encode('utf-8', 'ignore').decode('utf-8', 'ignore'))
+            except Exception:
+                pass # Laisser la chaîne telle quelle si la conversion échoue
+
+        # >>> FIN DE LA CORRECTION D'ENCODAGE SUPPLÉMENTAIRE <<<
         
         return df
     except Exception as e:
@@ -215,7 +230,6 @@ validate_identification = validate_section
 
 # --- COMPOSANTS UI ---
 
-# CORRECTION DE LA CLEF : Ajout d'un index unique de boucle (loop_index)
 def render_question(row, answers, phase_name, key_suffix, loop_index):
     """Affiche un widget Streamlit."""
     q_id = int(row['id'])
@@ -225,9 +239,12 @@ def render_question(row, answers, phase_name, key_suffix, loop_index):
     q_mandatory = str(row['obligatoire']).lower() == 'oui'
     q_options = str(row['options']).split(',') if row['options'] else []
     
+    # Correction de l'affichage: s'assurer que le texte est une chaîne propre
+    q_text = str(q_text).strip()
+    q_desc = str(q_desc).strip()
+    
     label_html = f"<strong>{q_id}. {q_text}</strong>" + (' <span class="mandatory">*</span>' if q_mandatory else "")
     
-    # CLÉ RENDUE ABSOLUMENT UNIQUE PAR L'AJOUT DE L'INDEX DE BOUCLE
     widget_key = f"q_{q_id}_{phase_name}_{key_suffix}_{loop_index}"
     
     current_val = answers.get(q_id)
@@ -272,8 +289,8 @@ if st.session_state['step'] == 'PROJECT_LOAD':
         else:
             st.error("Impossible de charger les données.")
             if st.button("Réessayer le chargement"):
-                load_form_structure_from_firestore.clear()
-                load_site_data_from_firestore.clear()
+                load_form_structure_from_firestore.clear() # EFFACE LE CACHE
+                load_site_data_from_firestore.clear() # EFFACE LE CACHE
                 st.session_state['step'] = 'PROJECT_LOAD'
                 st.rerun()
 
@@ -312,10 +329,8 @@ elif st.session_state['step'] == 'IDENTIFICATION':
     
     rendering_id = st.session_state['id_rendering_ident']
     
-    # UTILISATION DE ENUMERATE POUR UNICITÉ PARFAITE
     for idx, (index, row) in enumerate(identification_questions.iterrows()):
         if check_condition(row, st.session_state['current_phase_temp'], st.session_state['collected_data']):
-            # Passage de idx comme loop_index
             render_question(row, st.session_state['current_phase_temp'], ID_SECTION_NAME, rendering_id, idx)
             
     st.markdown("---")
@@ -401,10 +416,8 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             section_questions = df[df['section'] == current_phase]
             
             visible_count = 0
-            # UTILISATION DE ENUMERATE POUR UNICITÉ PARFAITE
             for idx, (index, row) in enumerate(section_questions.iterrows()):
                 if check_condition(row, st.session_state['current_phase_temp'], st.session_state['collected_data']):
-                    # Passage de idx comme loop_index
                     render_question(row, st.session_state['current_phase_temp'], current_phase, st.session_state['iteration_id'], idx)
                     visible_count += 1
             
