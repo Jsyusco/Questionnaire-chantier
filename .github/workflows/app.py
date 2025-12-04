@@ -542,7 +542,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
         st.write("Détails du Projet Sélectionné")
         
         # Ligne 1 : Les Fournisseurs (Ordre 1, 2, 3)
-        st.markdown("### 1. Identification & Fournisseurs")
+        st.markdown("1. Identification & Fournisseurs")
         # Création de 3 colonnes de taille égale
         cols1 = st.columns([1, 1, 1]) 
         fields_l1 = DISPLAY_GROUPS[0]
@@ -554,7 +554,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
                 st.markdown(f"**{renamed_key}** : {value}")
         
         # Ligne 2 : Les Nouveaux Déploiements (Ordre 4, 5, 6)
-        st.markdown("# 2. Déploiement Standard")
+        st.markdown("2. Déploiement Standard")
         cols2 = st.columns([1, 1, 1])
         fields_l2 = DISPLAY_GROUPS[1]
         for i, field_key in enumerate(fields_l2):
