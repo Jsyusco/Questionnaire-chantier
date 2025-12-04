@@ -693,3 +693,242 @@ elif st.session_state['step'] == 'PROJECT':
                 st.session_state['step'] = 'IDENTIFICATION'
                 st.session_state['current_phase_temp'] = {}
                 st.session_state['iteration_id'] = str(uuid.uuid4())
+                st.session_state['id_rendering_ident'] = None
+                st.rerun()
+
+elif st.session_state['step'] == 'IDENTIFICATION':
+    df = st.session_state['df_struct']
+    ID_SECTION_NAME = df['section'].iloc[0]
+    
+    st.markdown(f'<div class="section-badge">👤 IDENTIFICATION</div>', unsafe_allow_html=True)
+    st.markdown(f"### {ID_SECTION_NAME}")
+
+    identification_questions = df[df['section'] == ID_SECTION_NAME]
+    
+    if st.session_state['id_rendering_ident'] is None:
+         st.session_state['id_rendering_ident'] = str(uuid.uuid4())
+    
+    rendering_id = st.session_state['id_rendering_ident']
+    
+    for idx, (index, row) in enumerate(identification_questions.iterrows()):
+        if check_condition(row, st.session_state['current_phase_temp'], st.session_state['collected_data']):
+            render_question(row, st.session_state['current_phase_temp'], ID_SECTION_NAME, rendering_id, idx)
+            
+    st.markdown("---")
+    
+    if st.button("✅ Valider l'identification"):
+        is_valid, errors = validate_identification(
+            df, ID_SECTION_NAME, st.session_state['current_phase_temp'], st.session_state['collected_data']
+        )
+        
+        if is_valid:
+            id_entry = {
+                "phase_name": ID_SECTION_NAME,
+                "answers": st.session_state['current_phase_temp'].copy()
+            }
+            st.session_state['collected_data'].append(id_entry)
+            st.session_state['identification_completed'] = True
+            st.session_state['step'] = 'LOOP_DECISION'
+            st.session_state['current_phase_temp'] = {}
+            st.success("✅ Identification validée avec succès !")
+            st.rerun()
+        else:
+            st.markdown('<div class="error-box"><b>⚠️ Erreur de validation :</b><br>' + '<br>'.join([f"• {e}" for e in errors]) + '</div>', unsafe_allow_html=True)
+
+elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
+    
+    project_intitule = st.session_state['project_data'].get('Intitulé', 'Projet Inconnu')
+    with st.expander(f"📍 Projet : {project_intitule}", expanded=False):
+        
+        project_details = st.session_state['project_data']
+
+        st.markdown("**Détails du Projet Sélectionné**")
+        
+        st.markdown('<div class="section-badge">1. IDENTIFICATION & FOURNISSEURS</div>', unsafe_allow_html=True)
+        cols1 = st.columns([1, 1, 1]) 
+        fields_l1 = DISPLAY_GROUPS[0]
+        for i, field_key in enumerate(fields_l1):
+            renamed_key = PROJECT_RENAME_MAP.get(field_key, field_key)
+            value = project_details.get(field_key, 'N/A')
+            with cols1[i]:
+                st.markdown(f"**{renamed_key}** : {value}")
+        
+        st.markdown('<div class="section-badge">2. POINTS DE CHARGE</div>', unsafe_allow_html=True)
+        cols2 = st.columns([1, 1, 1])
+        fields_l2 = DISPLAY_GROUPS[1]
+        for i, field_key in enumerate(fields_l2):
+            renamed_key = PROJECT_RENAME_MAP.get(field_key, field_key)
+            value = project_details.get(field_key, 'N/A')
+            with cols2[i]:
+                st.markdown(f"**{renamed_key}** : {value}")
+
+        st.markdown('<div class="section-badge">3. POINTS DE CHARGE PRÉ-ÉQUIPÉS</div>', unsafe_allow_html=True)
+        cols3 = st.columns([1, 1, 1])
+        fields_l3 = DISPLAY_GROUPS[2]
+        for i, field_key in enumerate(fields_l3):
+            renamed_key = PROJECT_RENAME_MAP.get(field_key, field_key)
+            value = project_details.get(field_key, 'N/A')
+            with cols3[i]:
+                st.markdown(f"**{renamed_key}** : {value}")
+
+        st.markdown("---")
+        st.write("**📊 Phases et Identification déjà complétées**")
+        for idx, item in enumerate(st.session_state['collected_data']):
+            st.write(f"• **{item['phase_name']}** : {len(item['answers'])} réponses")
+
+    if st.session_state['step'] == 'LOOP_DECISION':
+        st.markdown("### 🔄 Gestion des Phases")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("➕ Ajouter une phase"):
+                st.session_state['step'] = 'FILL_PHASE'
+                st.session_state['current_phase_temp'] = {}
+                st.session_state['current_phase_name'] = None
+                st.session_state['iteration_id'] = str(uuid.uuid4())
+                st.rerun()
+        with col2:
+            if st.button("🏁 Terminer l'audit"):
+                st.session_state['step'] = 'FINISHED'
+                st.rerun()
+
+    elif st.session_state['step'] == 'FILL_PHASE':
+        df = st.session_state['df_struct']
+        
+        ID_SECTION_NAME = df['section'].iloc[0]
+        ID_SECTION_CLEAN = str(ID_SECTION_NAME).strip().lower()
+        SECTIONS_TO_EXCLUDE_CLEAN = {ID_SECTION_CLEAN, "phase"}
+        
+        all_sections_raw = df['section'].unique().tolist()
+        available_phases = []
+        for sec in all_sections_raw:
+            if pd.isna(sec) or not sec or str(sec).strip().lower() in SECTIONS_TO_EXCLUDE_CLEAN:
+                continue
+            available_phases.append(sec)
+        
+        if not st.session_state['current_phase_name']:
+              st.markdown("### 📑 Sélection de la phase")
+              phase_choice = st.selectbox("🎯 Quelle phase souhaitez-vous remplir ?", [""] + available_phases)
+              if phase_choice:
+                  st.session_state['current_phase_name'] = phase_choice
+                  st.rerun()
+              if st.button("⬅️ Retour"):
+                  st.session_state['step'] = 'LOOP_DECISION'
+                  st.session_state['current_phase_temp'] = {}
+                  st.rerun()
+        else:
+            current_phase = st.session_state['current_phase_name']
+            st.markdown(f'<div class="section-badge">{current_phase}</div>', unsafe_allow_html=True)
+            st.markdown(f"### 📝 Remplissage : {current_phase}")
+            st.markdown("---")
+            if st.button("🔄 Changer de phase"):
+                st.session_state['current_phase_name'] = None
+                st.session_state['current_phase_temp'] = {}
+                st.session_state['iteration_id'] = str(uuid.uuid4())
+                st.rerun()
+            
+            st.markdown("---")
+            
+            section_questions = df[df['section'] == current_phase]
+            
+            visible_count = 0
+            for idx, (index, row) in enumerate(section_questions.iterrows()):
+                if check_condition(row, st.session_state['current_phase_temp'], st.session_state['collected_data']):
+                    render_question(row, st.session_state['current_phase_temp'], current_phase, st.session_state['iteration_id'], idx)
+                    visible_count += 1
+            
+            if visible_count == 0:
+                st.warning("⚠️ Aucune question visible pour cette phase.")
+
+            st.markdown("---")
+            
+            c1, c2 = st.columns([1, 2])
+            with c1:
+                if st.button("❌ Annuler"):
+                    st.session_state['step'] = 'LOOP_DECISION'
+                    st.rerun()
+            with c2:
+                if st.button("💾 Valider la phase"):
+                    is_valid, errors = validate_phase(
+                        df, current_phase, st.session_state['current_phase_temp'], st.session_state['collected_data']
+                    )
+                    
+                    if is_valid:
+                        new_entry = {
+                            "phase_name": current_phase,
+                            "answers": st.session_state['current_phase_temp'].copy()
+                        }
+                        st.session_state['collected_data'].append(new_entry)
+                        st.success("✅ Phase enregistrée avec succès !")
+                        st.session_state['step'] = 'LOOP_DECISION'
+                        st.rerun()
+                    else:
+                        st.markdown('<div class="error-box"><b>⚠️ Erreurs de validation :</b><br>' + '<br>'.join([f"• {e}" for e in errors]) + '</div>', unsafe_allow_html=True)
+
+elif st.session_state['step'] == 'FINISHED':
+    st.markdown("## 🎉 Formulaire Terminé")
+    st.write(f"**Projet :** {st.session_state['project_data'].get('Intitulé')}")
+    
+    if not st.session_state['data_saved']:
+        with st.spinner("💾 Sauvegarde dans Firestore en cours..."):
+            success, submission_id_returned = save_form_data(st.session_state['collected_data'], st.session_state['project_data'])
+            
+            if success:
+                st.balloons()
+                st.markdown(f'<div class="success-box">✅ <b>Données sauvegardées avec succès !</b><br>ID de soumission : {submission_id_returned}</div>', unsafe_allow_html=True)
+                st.session_state['data_saved'] = True
+            else:
+                st.markdown(f'<div class="error-box">❌ <b>Erreur lors de la sauvegarde :</b><br>{submission_id_returned}</div>', unsafe_allow_html=True)
+                if st.button("🔄 Réessayer la sauvegarde"):
+                    st.rerun()
+    else:
+        st.info("ℹ️ Les données ont déjà été sauvegardées sur Firestore.")
+
+    st.markdown("---")
+    
+    if st.session_state['data_saved']:
+        st.markdown("### 📥 Télécharger les données")
+        
+        col_csv, col_zip = st.columns(2)
+        
+        csv_data = create_csv_export(st.session_state['collected_data'], st.session_state['df_struct'])
+        date_str = datetime.now().strftime('%Y%m%d_%H%M')
+        file_name_csv = f"Export_{st.session_state['project_data'].get('Intitulé', 'Projet')}_{date_str}.csv"
+        
+        with col_csv:
+            st.download_button(
+                label="📄 Télécharger les réponses (CSV)",
+                data=csv_data,
+                file_name=file_name_csv,
+                mime='text/csv'
+            )
+
+        zip_buffer = create_zip_export(st.session_state['collected_data'])
+        
+        with col_zip:
+            if zip_buffer:
+                file_name_zip = f"Photos_{st.session_state['project_data'].get('Intitulé', 'Projet')}_{date_str}.zip"
+                st.download_button(
+                    label="📷 Télécharger les photos (ZIP)",
+                    data=zip_buffer.getvalue(),
+                    file_name=file_name_zip,
+                    mime="application/zip"
+                )
+            else:
+                st.info("ℹ️ Aucune photo à télécharger.")
+
+    st.markdown("---")
+
+    st.markdown("### 🔍 Détails techniques")
+    for i, phase in enumerate(st.session_state['collected_data']):
+        with st.expander(f"📋 Section {i+1} : {phase['phase_name']}"):
+            clean_display = {
+                k: (
+                    [f.name for f in v] if isinstance(v, list) and v and hasattr(v[0], 'name') else 
+                    (v.name if hasattr(v, 'name') else v)
+                ) for k, v in phase['answers'].items()
+            }
+            st.json(clean_display)
+            
+    if st.button("🔄 Nouveau projet"):
+        st.session_state.clear()
+        st.rerun()
