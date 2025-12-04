@@ -32,7 +32,6 @@ def initialize_firebase():
     """Initialise Firebase avec les secrets individuels et force l'ID du projet."""
     if not firebase_admin._apps:
         try:
-            # Reconstruction manuelle du dictionnaire de crédits
             cred_dict = {
                 "type": st.secrets["firebase_type"],
                 "project_id": st.secrets["firebase_project_id"],
@@ -49,10 +48,7 @@ def initialize_firebase():
             
             project_id = cred_dict["project_id"]
             cred = credentials.Certificate(cred_dict)
-            
-            # Initialisation avec projectId explicite (Solution au bug 403)
             firebase_admin.initialize_app(cred, {'projectId': project_id})
-            
             st.sidebar.success("Connexion BDD réussie 🟢")
         
         except KeyError as e:
@@ -61,17 +57,15 @@ def initialize_firebase():
         except Exception as e:
             st.sidebar.error(f"Erreur de connexion Firebase : {e}")
             st.stop()
-    
     return firestore.client()
 
-# Initialisation globale de la DB au lancement
 db = initialize_firebase()
 
 # --- FONCTIONS DE CHARGEMENT ET SAUVEGARDE FIREBASE ---
 
 @st.cache_data(ttl=3600)
 def load_form_structure_from_firestore():
-    """Charge la structure depuis la collection 'formsquestions' (avec correction KeyError)."""
+    """Charge la structure depuis la collection 'formsquestions'."""
     try:
         docs = db.collection('formsquestions').order_by('id').get()
         data = [doc.to_dict() for doc in docs]
@@ -83,7 +77,6 @@ def load_form_structure_from_firestore():
         df = pd.DataFrame(data)
         df.columns = df.columns.str.strip()
         
-        # 1. Tentative de renommage standard
         rename_map = {
             'Conditon value': 'Condition value', 'condition value': 'Condition value',
             'Condition Value': 'Condition value', 'Condition': 'Condition value',
@@ -92,18 +85,15 @@ def load_form_structure_from_firestore():
         actual_rename = {k: v for k, v in rename_map.items() if k in df.columns}
         df = df.rename(columns=actual_rename)
         
-        # 2. CORRECTION CRUCIALE : Création des colonnes manquantes pour éviter le KeyError
+        # Création des colonnes manquantes
         expected_cols = ['options', 'Description', 'Condition value', 'Condition on', 'section', 'id', 'question', 'type', 'obligatoire']
         for col in expected_cols:
             if col not in df.columns:
                 df[col] = np.nan 
         
-        # 3. Nettoyage des données (maintenant sécurisé)
         df['options'] = df['options'].fillna('')
         df['Description'] = df['Description'].fillna('')
         df['Condition value'] = df['Condition value'].fillna('')
-        
-        # Conversion sécurisée de 'Condition on' en entier (ou 0 par défaut)
         df['Condition on'] = df['Condition on'].apply(lambda x: int(x) if pd.notna(x) and str(x).isdigit() else 0)
         
         return df
@@ -125,7 +115,6 @@ def load_site_data_from_firestore():
             
         df_site = pd.DataFrame(data)
         df_site.columns = df_site.columns.str.strip()
-        
         return df_site
     except Exception as e:
         st.error(f"Erreur lecture 'Sites': {e}")
@@ -135,7 +124,6 @@ def load_site_data_from_firestore():
 def save_form_data(collected_data, project_data):
     """Sauvegarde les données finales dans 'FormAnswers'."""
     try:
-        # Nettoyage des données (suppression des objets fichiers non sérialisables pour le JSON)
         cleaned_data = []
         for phase in collected_data:
             clean_phase = {
@@ -143,7 +131,7 @@ def save_form_data(collected_data, project_data):
                 "answers": {}
             }
             for k, v in phase["answers"].items():
-                if hasattr(v, 'read'): # Si c'est un objet fichier (UploadedFile)
+                if hasattr(v, 'read'): 
                     clean_phase["answers"][str(k)] = f"Image chargée (Nom: {v.name})"
                 else:
                     clean_phase["answers"][str(k)] = v
@@ -157,7 +145,6 @@ def save_form_data(collected_data, project_data):
             "collected_phases": cleaned_data
         }
         
-        # Création d'un ID unique
         doc_id_base = str(project_data.get('Intitulé', 'form')).replace(" ", "_").replace("/", "_")[:20]
         doc_id = f"{doc_id_base}_{datetime.now().strftime('%Y%m%d_%H%M')}_{str(uuid.uuid4())[:6]}"
         
@@ -174,11 +161,10 @@ def init_session_state():
         'collected_data': [],
         'current_phase_temp': {},
         'current_phase_name': None,
-        # Initialisation de l'ID d'itération
         'iteration_id': str(uuid.uuid4()), 
         'identification_completed': False,
         'data_saved': False,
-        'id_rendering_ident': None # Nouveau marqueur de rendu
+        'id_rendering_ident': None
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -186,10 +172,9 @@ def init_session_state():
 
 init_session_state()
 
-# --- LOGIQUE MÉTIER (CHECK CONDITION & VALIDATION) ---
+# --- LOGIQUE MÉTIER ---
 
 def check_condition(row, current_answers, collected_data):
-    """Vérifie si une question doit être affichée."""
     try:
         if int(row.get('Condition on', 0)) != 1: return True
     except (ValueError, TypeError): return True
@@ -213,7 +198,6 @@ def check_condition(row, current_answers, collected_data):
     except Exception: return True
 
 def validate_section(df_questions, section_name, answers, collected_data):
-    """Valide les champs obligatoires."""
     missing = []
     section_rows = df_questions[df_questions['section'] == section_name]
     for _, row in section_rows.iterrows():
@@ -231,8 +215,8 @@ validate_identification = validate_section
 
 # --- COMPOSANTS UI ---
 
-# CORRECTION DE LA CLEF : Utilise phase_name
-def render_question(row, answers, phase_name, key_suffix):
+# CORRECTION DE LA CLEF : Ajout d'un index unique de boucle (loop_index)
+def render_question(row, answers, phase_name, key_suffix, loop_index):
     """Affiche un widget Streamlit."""
     q_id = int(row['id'])
     q_text = row['question']
@@ -243,8 +227,8 @@ def render_question(row, answers, phase_name, key_suffix):
     
     label_html = f"<strong>{q_id}. {q_text}</strong>" + (' <span class="mandatory">*</span>' if q_mandatory else "")
     
-    # CLÉ CORRIGÉE
-    widget_key = f"q_{q_id}_{phase_name}_{key_suffix}"
+    # CLÉ RENDUE ABSOLUMENT UNIQUE PAR L'AJOUT DE L'INDEX DE BOUCLE
+    widget_key = f"q_{q_id}_{phase_name}_{key_suffix}_{loop_index}"
     
     current_val = answers.get(q_id)
     val = current_val
@@ -274,7 +258,6 @@ def render_question(row, answers, phase_name, key_suffix):
 
 st.markdown('<div class="main-header"><h1>📝Formulaire Chantier (Cloud)</h1></div>', unsafe_allow_html=True)
 
-# 1. CHARGEMENT DEPUIS FIRESTORE
 if st.session_state['step'] == 'PROJECT_LOAD':
     st.info("Tentative de chargement de la structure des formulaires...")
     with st.spinner("Chargement en cours..."):
@@ -287,20 +270,19 @@ if st.session_state['step'] == 'PROJECT_LOAD':
             st.session_state['step'] = 'PROJECT'
             st.rerun()
         else:
-            st.error("Impossible de charger les données. Veuillez vérifier les collections 'formsquestions' et 'Sites'.")
+            st.error("Impossible de charger les données.")
             if st.button("Réessayer le chargement"):
                 load_form_structure_from_firestore.clear()
                 load_site_data_from_firestore.clear()
                 st.session_state['step'] = 'PROJECT_LOAD'
                 st.rerun()
 
-# 2. SÉLECTION PROJET
 elif st.session_state['step'] == 'PROJECT':
     df_site = st.session_state['df_site']
     st.markdown("### 🏗️ Sélection du Chantier")
     
     if 'Intitulé' not in df_site.columns:
-        st.error("Colonne 'Intitulé' manquante dans la collection 'Sites'.")
+        st.error("Colonne 'Intitulé' manquante.")
     else:
         projects = [""] + df_site['Intitulé'].dropna().unique().tolist()
         selected_proj = st.selectbox("Rechercher un projet", projects)
@@ -313,12 +295,10 @@ elif st.session_state['step'] == 'PROJECT':
                 st.session_state['project_data'] = row.to_dict()
                 st.session_state['step'] = 'IDENTIFICATION'
                 st.session_state['current_phase_temp'] = {}
-                # Assure que l'ID d'itération est neuf pour l'identification
                 st.session_state['iteration_id'] = str(uuid.uuid4()) 
-                st.session_state['id_rendering_ident'] = None # Réinitialise le marqueur de rendu
+                st.session_state['id_rendering_ident'] = None
                 st.rerun()
 
-# 3. IDENTIFICATION
 elif st.session_state['step'] == 'IDENTIFICATION':
     df = st.session_state['df_struct']
     ID_SECTION_NAME = df['section'].iloc[0]
@@ -327,18 +307,16 @@ elif st.session_state['step'] == 'IDENTIFICATION':
 
     identification_questions = df[df['section'] == ID_SECTION_NAME]
     
-    # Mise à jour du marqueur d'état pour le rendu de l'identification
     if st.session_state['id_rendering_ident'] is None:
-         st.session_state['id_rendering_ident'] = str(uuid.uuid4()) # Utilise un nouvel ID spécifique au rendu
+         st.session_state['id_rendering_ident'] = str(uuid.uuid4())
     
-    # Utilisation de l'ID de rendu (ID_SECTION_NAME)
     rendering_id = st.session_state['id_rendering_ident']
     
-    for _, row in identification_questions.iterrows():
+    # UTILISATION DE ENUMERATE POUR UNICITÉ PARFAITE
+    for idx, (index, row) in enumerate(identification_questions.iterrows()):
         if check_condition(row, st.session_state['current_phase_temp'], st.session_state['collected_data']):
-            # APPEL CORRIGÉ (avec ID_SECTION_NAME comme phase_name)
-            # Utilisation du nouveau rendering_id comme suffixe
-            render_question(row, st.session_state['current_phase_temp'], ID_SECTION_NAME, rendering_id)
+            # Passage de idx comme loop_index
+            render_question(row, st.session_state['current_phase_temp'], ID_SECTION_NAME, rendering_id, idx)
             
     st.markdown("---")
     
@@ -361,7 +339,6 @@ elif st.session_state['step'] == 'IDENTIFICATION':
         else:
             st.markdown('<div class="error-box"><b>⚠️ Erreur de validation :</b><br>' + '<br>'.join([f"- {e}" for e in errors]) + '</div>', unsafe_allow_html=True)
 
-# 4. LA BOUCLE
 elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
     
     with st.expander(f"📍 Projet : {st.session_state['project_data'].get('Intitulé')}", expanded=False):
@@ -369,17 +346,14 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
         for idx, item in enumerate(st.session_state['collected_data']):
             st.write(f"• **{item['phase_name']}** : {len(item['answers'])} réponses")
 
-    # A. DÉCISION
     if st.session_state['step'] == 'LOOP_DECISION':
         st.markdown("### 🔄 Gestion des Phases")
-        
         col1, col2 = st.columns(2)
         with col1:
             if st.button("➕ Ajouter une phase"):
                 st.session_state['step'] = 'FILL_PHASE'
                 st.session_state['current_phase_temp'] = {}
                 st.session_state['current_phase_name'] = None
-                # Régénération de l'ID d'itération pour la nouvelle phase
                 st.session_state['iteration_id'] = str(uuid.uuid4())
                 st.rerun()
         with col2:
@@ -388,7 +362,6 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
                 st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # B. REMPLISSAGE
     elif st.session_state['step'] == 'FILL_PHASE':
         df = st.session_state['df_struct']
         
@@ -413,7 +386,6 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
                  st.session_state['step'] = 'LOOP_DECISION'
                  st.session_state['current_phase_temp'] = {}
                  st.rerun()
-                 
         else:
             current_phase = st.session_state['current_phase_name']
             st.markdown(f"### 📝 {current_phase}")
@@ -421,7 +393,6 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             if st.button("🔄 Changer de phase"):
                 st.session_state['current_phase_name'] = None
                 st.session_state['current_phase_temp'] = {}
-                # Régénération de l'ID pour la phase suivante
                 st.session_state['iteration_id'] = str(uuid.uuid4())
                 st.rerun()
             
@@ -430,14 +401,15 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             section_questions = df[df['section'] == current_phase]
             
             visible_count = 0
-            for _, row in section_questions.iterrows():
+            # UTILISATION DE ENUMERATE POUR UNICITÉ PARFAITE
+            for idx, (index, row) in enumerate(section_questions.iterrows()):
                 if check_condition(row, st.session_state['current_phase_temp'], st.session_state['collected_data']):
-                    # APPEL CORRIGÉ (avec current_phase comme phase_name)
-                    render_question(row, st.session_state['current_phase_temp'], current_phase, st.session_state['iteration_id'])
+                    # Passage de idx comme loop_index
+                    render_question(row, st.session_state['current_phase_temp'], current_phase, st.session_state['iteration_id'], idx)
                     visible_count += 1
             
             if visible_count == 0:
-                st.warning("Aucune question visible (vérifiez les conditions).")
+                st.warning("Aucune question visible.")
 
             st.markdown("---")
             
@@ -466,12 +438,10 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             
             st.markdown('</div>', unsafe_allow_html=True)
 
-# 5. FIN ET SAUVEGARDE
 elif st.session_state['step'] == 'FINISHED':
     st.markdown("## 🎉 Formulaire Terminé")
     st.write(f"Projet : **{st.session_state['project_data'].get('Intitulé')}**")
     
-    # SAUVEGARDE FIRESTORE
     if not st.session_state['data_saved']:
         with st.spinner("Sauvegarde dans Firestore en cours..."):
             success, message = save_form_data(st.session_state['collected_data'], st.session_state['project_data'])
