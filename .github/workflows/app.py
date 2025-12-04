@@ -564,7 +564,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
                 st.markdown(f"**{renamed_key}** : {value}")
 
         # Ligne 3 : Les Déploiements Pré-équipés (Ordre 7, 8, 9)
-        st.markdown("## 3. Déploiement Pré-équipé")
+        st.markdown("3. Déploiement Pré-équipé")
         cols3 = st.columns([1, 1, 1])
         fields_l3 = DISPLAY_GROUPS[2]
         for i, field_key in enumerate(fields_l3):
