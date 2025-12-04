@@ -1,4 +1,4 @@
-# --- IMPORTS ET PRÉPARATION ---
+# --- IMPORTS ET PRÉPARATION (inchangés) ---
 import streamlit as st
 import pandas as pd
 import uuid
@@ -9,7 +9,7 @@ import numpy as np
 import zipfile
 import io
 
-# --- CONFIGURATION ET STYLE ---
+# --- CONFIGURATION ET STYLE (inchangés) ---
 st.set_page_config(page_title="Formulaire Dynamique - Firestore", layout="centered")
 
 st.markdown("""
@@ -29,7 +29,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- INITIALISATION FIREBASE SÉCURISÉE ---
+# --- INITIALISATION FIREBASE SÉCURISÉE (inchangée) ---
 def initialize_firebase():
     """Initialise Firebase avec les secrets individuels et force l'ID du projet."""
     if not firebase_admin._apps:
@@ -67,7 +67,7 @@ db = initialize_firebase()
 
 @st.cache_data(ttl=3600)
 def load_form_structure_from_firestore():
-    """Charge la structure depuis la collection 'formsquestions' (avec correction d'encodage)."""
+    # Logique inchangée
     try:
         docs = db.collection('formsquestions').order_by('id').get()
         data = [doc.to_dict() for doc in docs]
@@ -114,7 +114,7 @@ def load_form_structure_from_firestore():
 
 @st.cache_data(ttl=3600)
 def load_site_data_from_firestore():
-    """Charge les sites depuis la collection 'Sites'."""
+    # Logique inchangée
     try:
         docs = db.collection('Sites').get()
         data = [doc.to_dict() for doc in docs]
@@ -132,7 +132,7 @@ def load_site_data_from_firestore():
         return None
 
 def save_form_data(collected_data, project_data):
-    """[MODIFICATION] Sauvegarde les données finales dans 'FormAnswers' avec l'ID et l'heure de début."""
+    """[MODIFICATION] Gère les listes de fichiers pour la sauvegarde Firestore."""
     try:
         cleaned_data = []
         for phase in collected_data:
@@ -141,7 +141,13 @@ def save_form_data(collected_data, project_data):
                 "answers": {}
             }
             for k, v in phase["answers"].items():
-                if hasattr(v, 'read'): 
+                # [MODIFICATION] Gère une liste de fichiers au lieu d'un seul
+                if isinstance(v, list) and v and hasattr(v[0], 'read'): 
+                    # C'est une liste d'objets FileUploader (Photos)
+                    file_names = ", ".join([f.name for f in v])
+                    clean_phase["answers"][str(k)] = f"Images chargées ({len(v)} fichiers) : {file_names}"
+                elif hasattr(v, 'read'): 
+                    # Cas d'un seul fichier (par sécurité, si le type n'était pas 'photo')
                     clean_phase["answers"][str(k)] = f"Image chargée (Nom: {v.name})"
                 else:
                     clean_phase["answers"][str(k)] = v
@@ -152,19 +158,17 @@ def save_form_data(collected_data, project_data):
         final_document = {
             "project_intitule": project_data.get('Intitulé', 'N/A'),
             "project_details": project_data,
-            "submission_id": submission_id, # Ajout de l'ID unique
-            "start_date": st.session_state.get('form_start_time', datetime.now()), # Ajout de l'heure de début
+            "submission_id": submission_id,
+            "start_date": st.session_state.get('form_start_time', datetime.now()),
             "submission_date": datetime.now(),
             "status": "Completed",
             "collected_phases": cleaned_data
         }
         
         doc_id_base = str(project_data.get('Intitulé', 'form')).replace(" ", "_").replace("/", "_")[:20]
-        # Utilisation de l'ID unique dans le nom du document
         doc_id = f"{doc_id_base}_{datetime.now().strftime('%Y%m%d_%H%M')}_{submission_id[:6]}"
         
         db.collection('FormAnswers').document(doc_id).set(final_document)
-        # Retourne l'ID unique pour le message de confirmation
         return True, submission_id 
     except Exception as e:
         return False, str(e)
@@ -172,41 +176,39 @@ def save_form_data(collected_data, project_data):
 # --- FONCTIONS EXPORT (MODIFIÉES) ---
 
 def create_csv_export(collected_data, df_struct):
-    """[MODIFICATION] Génère un CSV à partir des données collectées avec ID et dates."""
+    """[MODIFICATION] Gère les listes de fichiers dans l'export CSV."""
     rows = []
     
-    # Informations du formulaire provenant de session_state
     submission_id = st.session_state.get('submission_id', 'N/A')
     project_name = st.session_state['project_data'].get('Intitulé', 'Projet Inconnu')
     
     start_time = st.session_state.get('form_start_time', 'N/A')
-    # L'heure de fin est l'heure actuelle lorsque l'export est généré
     end_time = datetime.now() 
     
-    # Formatage des dates pour le CSV
     start_time_str = start_time.strftime('%Y-%m-%d %H:%M:%S') if isinstance(start_time, datetime) else 'N/A'
     end_time_str = end_time.strftime('%Y-%m-%d %H:%M:%S')
 
     for item in collected_data:
         phase_name = item['phase_name']
         for q_id, val in item['answers'].items():
-            # Trouver le libellé de la question
+            
             q_row = df_struct[df_struct['id'] == int(q_id)]
-            if not q_row.empty:
-                q_text = q_row.iloc[0]['question']
-            else:
-                q_text = f"Question ID {q_id}"
+            q_text = q_row.iloc[0]['question'] if not q_row.empty else f"Question ID {q_id}"
             
             # Gérer la valeur (fichier vs texte)
-            if hasattr(val, 'name'):
+            if isinstance(val, list) and val and hasattr(val[0], 'name'):
+                # [MODIFICATION] Gère une liste de fichiers
+                file_names = ", ".join([f.name for f in val])
+                final_val = f"[Fichiers] {len(val)} photos: {file_names}"
+            elif hasattr(val, 'name'):
                 final_val = f"[Fichier] {val.name}"
             else:
                 final_val = str(val)
             
             rows.append({
-                "ID Formulaire": submission_id, # NOUVEAU
-                "Date Début": start_time_str,   # NOUVEAU
-                "Date Fin": end_time_str,       # NOUVEAU
+                "ID Formulaire": submission_id,
+                "Date Début": start_time_str,
+                "Date Fin": end_time_str,
                 "Projet": project_name,
                 "Phase": phase_name,
                 "ID": q_id,
@@ -218,7 +220,7 @@ def create_csv_export(collected_data, df_struct):
     return df_export.to_csv(index=False, sep=';', encoding='utf-8-sig')
 
 def create_zip_export(collected_data):
-    """Génère un fichier ZIP contenant toutes les images uploadées."""
+    """[MODIFICATION] Gère l'itération sur la liste de fichiers pour le ZIP."""
     zip_buffer = io.BytesIO()
     has_files = False
     
@@ -227,21 +229,29 @@ def create_zip_export(collected_data):
             phase_name = str(item['phase_name']).replace(" ", "_").replace("/", "-")
             
             for q_id, val in item['answers'].items():
-                if hasattr(val, 'read') and hasattr(val, 'name'):
+                
+                # Récupère tous les fichiers à zipper (simple ou multiple)
+                files_to_zip = []
+                if isinstance(val, list) and val and hasattr(val[0], 'read'):
+                    files_to_zip = val
+                elif hasattr(val, 'read') and hasattr(val, 'name'):
+                    files_to_zip = [val]
+                
+                for file_obj in files_to_zip:
                     has_files = True
-                    val.seek(0)
-                    file_content = val.read()
+                    file_obj.seek(0)
+                    file_content = file_obj.read()
                     
                     clean_phase = phase_name.replace(" ", "_").replace("/", "-")
-                    archive_name = f"{clean_phase}_Q{q_id}_{val.name}"
+                    archive_name = f"{clean_phase}_Q{q_id}_{file_obj.name}"
                     
                     zip_file.writestr(archive_name, file_content)
                     
     return zip_buffer if has_files else None
 
-# --- GESTION DE L'ÉTAT ---
+# --- GESTION DE L'ÉTAT (inchangée) ---
 def init_session_state():
-    """[MODIFICATION] Ajout de l'ID de soumission et de l'heure de début."""
+    """Ajout de l'ID de soumission et de l'heure de début."""
     defaults = {
         'step': 'PROJECT_LOAD',
         'project_data': None,
@@ -252,8 +262,8 @@ def init_session_state():
         'identification_completed': False,
         'data_saved': False,
         'id_rendering_ident': None,
-        'form_start_time': None,    # NOUVEAU : Date/heure de début de complétion
-        'submission_id': None       # NOUVEAU : ID unique du formulaire
+        'form_start_time': None,
+        'submission_id': None
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -261,7 +271,7 @@ def init_session_state():
 
 init_session_state()
 
-# --- LOGIQUE MÉTIER (non modifiée) ---
+# --- LOGIQUE MÉTIER (inchangée) ---
 
 def check_condition(row, current_answers, collected_data):
     # Logique de condition inchangée
@@ -297,17 +307,22 @@ def validate_section(df_questions, section_name, answers, collected_data):
         if is_mandatory:
             q_id = int(row['id'])
             val = answers.get(q_id)
-            if val is None or val == "" or (isinstance(val, (int, float)) and val == 0):
+            
+            # [MODIFICATION] La validation doit vérifier si la LISTE est vide pour les photos
+            if isinstance(val, list):
+                if not val:
+                    missing.append(f"Question {q_id} : {row['question']} (photo(s) manquante(s))")
+            elif val is None or val == "" or (isinstance(val, (int, float)) and val == 0):
                 missing.append(f"Question {q_id} : {row['question']}")
     return len(missing) == 0, missing
 
 validate_phase = validate_section
 validate_identification = validate_section
 
-# --- COMPOSANTS UI (non modifiés) ---
+# --- COMPOSANTS UI (MODIFIÉ) ---
 
 def render_question(row, answers, phase_name, key_suffix, loop_index):
-    # Logique de rendu de question inchangée
+    """[MODIFICATION] Utilise 'accept_multiple_files=True' pour les photos."""
     q_id = int(row['id'])
     q_text = row['question']
     q_type = str(row['type']).strip().lower()
@@ -338,15 +353,36 @@ def render_question(row, answers, phase_name, key_suffix, loop_index):
     elif q_type == 'number':
         default_val = float(current_val) if current_val else 0.0
         val = st.number_input("Nombre", value=default_val, key=widget_key, label_visibility="collapsed")
+        
     elif q_type == 'photo':
-        val = st.file_uploader("Image", type=['png', 'jpg', 'jpeg'], key=widget_key, label_visibility="collapsed")
-        if val: st.success(f"Image chargée : {val.name}")
-        elif current_val: st.info("Image conservée.")
-
+        # [MODIFICATION] Ajout de accept_multiple_files=True
+        val = st.file_uploader(
+            "Images", 
+            type=['png', 'jpg', 'jpeg'], 
+            accept_multiple_files=True, 
+            key=widget_key, 
+            label_visibility="collapsed"
+        )
+        
+        # Affichage des confirmations
+        if val:
+            file_names = ", ".join([f.name for f in val])
+            st.success(f"Nombre d'images chargées : {len(val)} ({file_names})")
+        # Si des fichiers sont déjà dans current_val (après un re-run) et que l'utilisateur n'a rien re-uploadé
+        elif current_val and isinstance(current_val, list) and current_val:
+             names = ", ".join([getattr(f, 'name', 'Fichier') for f in current_val])
+             st.info(f"Fichiers conservés : {len(current_val)} ({names})")
+    
     st.markdown('</div>', unsafe_allow_html=True)
-    if val is not None: answers[q_id] = val
+    
+    # Le FileUploader retourne une liste de fichiers (ou None/[])
+    if val is not None:
+         answers[q_id] = val 
+    elif current_val is not None:
+        # Si l'utilisateur n'a pas interagi, on garde les fichiers qui étaient là
+        answers[q_id] = current_val
 
-# --- FLUX PRINCIPAL ---
+# --- FLUX PRINCIPAL (inchangé) ---
 
 st.markdown('<div class="main-header"><h1>📝Formulaire Chantier (Cloud)</h1></div>', unsafe_allow_html=True)
 
@@ -384,7 +420,6 @@ elif st.session_state['step'] == 'PROJECT':
             st.info(f"Projet sélectionné : {selected_proj} ")
             
             if st.button("✅ Démarrer l'identification"):
-                """[MODIFICATION] Stockage de l'heure de début et génération de l'ID unique."""
                 st.session_state['project_data'] = row.to_dict()
                 st.session_state['form_start_time'] = datetime.now() 
                 st.session_state['submission_id'] = str(uuid.uuid4())
@@ -536,7 +571,6 @@ elif st.session_state['step'] == 'FINISHED':
     # 1. SAUVEGARDE SUR FIREBASE
     if not st.session_state['data_saved']:
         with st.spinner("Sauvegarde dans Firestore en cours..."):
-            # L'ID de soumission est retourné ici
             success, submission_id_returned = save_form_data(st.session_state['collected_data'], st.session_state['project_data'])
             
             if success:
@@ -559,7 +593,6 @@ elif st.session_state['step'] == 'FINISHED':
         col_csv, col_zip = st.columns(2)
         
         # --- Export CSV ---
-        # Appel de la fonction MODIFIÉE qui inclut maintenant les dates et l'ID
         csv_data = create_csv_export(st.session_state['collected_data'], st.session_state['df_struct'])
         date_str = datetime.now().strftime('%Y%m%d_%H%M')
         file_name_csv = f"Export_{st.session_state['project_data'].get('Intitulé', 'Projet')}_{date_str}.csv"
@@ -592,7 +625,13 @@ elif st.session_state['step'] == 'FINISHED':
     # Affichage JSON technique
     for i, phase in enumerate(st.session_state['collected_data']):
         with st.expander(f"Section {i+1} : {phase['phase_name']}"):
-            clean_display = {k: (v.name if hasattr(v, 'name') else v) for k, v in phase['answers'].items()}
+            # Gère l'affichage d'une liste de fichiers pour l'expandeur JSON
+            clean_display = {
+                k: (
+                    [f.name for f in v] if isinstance(v, list) and v and hasattr(v[0], 'name') else 
+                    (v.name if hasattr(v, 'name') else v)
+                ) for k, v in phase['answers'].items()
+            }
             st.json(clean_display)
             
     if st.button("🔄 Nouveau projet"):
