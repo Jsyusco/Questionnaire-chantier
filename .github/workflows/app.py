@@ -15,10 +15,10 @@ st.set_page_config(page_title="Formulaire Dynamique - Firestore", layout="center
 st.markdown("""
 <style>
     .stApp { background-color: #121212; color: #e0e0e0; }
-    .main-header { background-color: #1e1e1e; padding: 20px; border-radius: 10px; margin-bottom: 20px; text-align: center; border-bottom: 3px solid #4285F4; }
+    .main-header { background-color: #1e1e1e; padding: 20px; border-radius: 10px; margin-bottom: 20px; text-align: center; border-bottom: 3px solid #E9630C; }
     .block-container { max-width: 800px; }
     .phase-block { background-color: #1e1e1e; padding: 25px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #333; }
-    .question-card { background-color: transparent; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #E9630C; }
+    .question-card { background-color: transparent; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 3px solid #E9630C; }
     h1, h2, h3 { color: #ffffff !important; }
     .description { font-size: 0.9em; color: #aaaaaa; font-style: italic; margin-bottom: 10px; }
     .mandatory { color: #F4B400; font-weight: bold; margin-left: 5px; }
