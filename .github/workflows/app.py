@@ -5,7 +5,7 @@ import uuid
 import firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime
-import numpy as np # Utilisé pour la gestion des valeurs NaN/None dans pandas
+import numpy as np
 
 # --- CONFIGURATION ET STYLE ---
 st.set_page_config(page_title="Formulaire Dynamique - Firestore", layout="centered")
@@ -96,7 +96,6 @@ def load_form_structure_from_firestore():
         expected_cols = ['options', 'Description', 'Condition value', 'Condition on', 'section', 'id', 'question', 'type', 'obligatoire']
         for col in expected_cols:
             if col not in df.columns:
-                # Créer la colonne avec des valeurs nulles (np.nan)
                 df[col] = np.nan 
         
         # 3. Nettoyage des données (maintenant sécurisé)
@@ -110,7 +109,7 @@ def load_form_structure_from_firestore():
         return df
     except Exception as e:
         st.error(f"Erreur lecture 'formsquestions': {e}")
-        st.exception(e) # Affiche l'erreur complète pour le débogage
+        st.exception(e)
         return None
 
 @st.cache_data(ttl=3600)
@@ -175,9 +174,11 @@ def init_session_state():
         'collected_data': [],
         'current_phase_temp': {},
         'current_phase_name': None,
-        'iteration_id': str(uuid.uuid4()),
+        # Initialisation de l'ID d'itération
+        'iteration_id': str(uuid.uuid4()), 
         'identification_completed': False,
-        'data_saved': False
+        'data_saved': False,
+        'id_rendering_ident': None # Nouveau marqueur de rendu
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -230,7 +231,7 @@ validate_identification = validate_section
 
 # --- COMPOSANTS UI ---
 
-# CORRECTION DE LA CLEF : Ajout de phase_name
+# CORRECTION DE LA CLEF : Utilise phase_name
 def render_question(row, answers, phase_name, key_suffix):
     """Affiche un widget Streamlit."""
     q_id = int(row['id'])
@@ -242,7 +243,7 @@ def render_question(row, answers, phase_name, key_suffix):
     
     label_html = f"<strong>{q_id}. {q_text}</strong>" + (' <span class="mandatory">*</span>' if q_mandatory else "")
     
-    # CLÉ CORRIGÉE : Utilise l'ID de question, le nom de la phase et le suffixe d'itération
+    # CLÉ CORRIGÉE
     widget_key = f"q_{q_id}_{phase_name}_{key_suffix}"
     
     current_val = answers.get(q_id)
@@ -312,7 +313,9 @@ elif st.session_state['step'] == 'PROJECT':
                 st.session_state['project_data'] = row.to_dict()
                 st.session_state['step'] = 'IDENTIFICATION'
                 st.session_state['current_phase_temp'] = {}
+                # Assure que l'ID d'itération est neuf pour l'identification
                 st.session_state['iteration_id'] = str(uuid.uuid4()) 
+                st.session_state['id_rendering_ident'] = None # Réinitialise le marqueur de rendu
                 st.rerun()
 
 # 3. IDENTIFICATION
@@ -324,10 +327,18 @@ elif st.session_state['step'] == 'IDENTIFICATION':
 
     identification_questions = df[df['section'] == ID_SECTION_NAME]
     
+    # Mise à jour du marqueur d'état pour le rendu de l'identification
+    if st.session_state['id_rendering_ident'] is None:
+         st.session_state['id_rendering_ident'] = str(uuid.uuid4()) # Utilise un nouvel ID spécifique au rendu
+    
+    # Utilisation de l'ID de rendu (ID_SECTION_NAME)
+    rendering_id = st.session_state['id_rendering_ident']
+    
     for _, row in identification_questions.iterrows():
         if check_condition(row, st.session_state['current_phase_temp'], st.session_state['collected_data']):
-            # APPEL CORRIGÉ (Ajout de ID_SECTION_NAME)
-            render_question(row, st.session_state['current_phase_temp'], ID_SECTION_NAME, st.session_state['iteration_id'])
+            # APPEL CORRIGÉ (avec ID_SECTION_NAME comme phase_name)
+            # Utilisation du nouveau rendering_id comme suffixe
+            render_question(row, st.session_state['current_phase_temp'], ID_SECTION_NAME, rendering_id)
             
     st.markdown("---")
     
@@ -368,6 +379,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
                 st.session_state['step'] = 'FILL_PHASE'
                 st.session_state['current_phase_temp'] = {}
                 st.session_state['current_phase_name'] = None
+                # Régénération de l'ID d'itération pour la nouvelle phase
                 st.session_state['iteration_id'] = str(uuid.uuid4())
                 st.rerun()
         with col2:
@@ -409,6 +421,8 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             if st.button("🔄 Changer de phase"):
                 st.session_state['current_phase_name'] = None
                 st.session_state['current_phase_temp'] = {}
+                # Régénération de l'ID pour la phase suivante
+                st.session_state['iteration_id'] = str(uuid.uuid4())
                 st.rerun()
             
             st.markdown("---")
@@ -418,7 +432,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             visible_count = 0
             for _, row in section_questions.iterrows():
                 if check_condition(row, st.session_state['current_phase_temp'], st.session_state['collected_data']):
-                    # APPEL CORRIGÉ (Ajout de current_phase)
+                    # APPEL CORRIGÉ (avec current_phase comme phase_name)
                     render_question(row, st.session_state['current_phase_temp'], current_phase, st.session_state['iteration_id'])
                     visible_count += 1
             
