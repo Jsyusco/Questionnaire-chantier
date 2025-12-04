@@ -5,9 +5,7 @@ import uuid
 import firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime
-
-# Importation spécifique pour la robustesse (création de colonnes manquantes)
-import numpy as np
+import numpy as np # Utilisé pour la gestion des valeurs NaN/None dans pandas
 
 # --- CONFIGURATION ET STYLE ---
 st.set_page_config(page_title="Formulaire Dynamique - Firestore", layout="centered")
@@ -32,7 +30,6 @@ st.markdown("""
 # --- INITIALISATION FIREBASE SÉCURISÉE ---
 def initialize_firebase():
     """Initialise Firebase avec les secrets individuels et force l'ID du projet."""
-    # S'assure que l'application n'est initialisée qu'une seule fois
     if not firebase_admin._apps:
         try:
             # Reconstruction manuelle du dictionnaire de crédits
@@ -99,7 +96,7 @@ def load_form_structure_from_firestore():
         expected_cols = ['options', 'Description', 'Condition value', 'Condition on', 'section', 'id', 'question', 'type', 'obligatoire']
         for col in expected_cols:
             if col not in df.columns:
-                # Créer la colonne avec des valeurs nulles (None/NaN)
+                # Créer la colonne avec des valeurs nulles (np.nan)
                 df[col] = np.nan 
         
         # 3. Nettoyage des données (maintenant sécurisé)
@@ -233,7 +230,8 @@ validate_identification = validate_section
 
 # --- COMPOSANTS UI ---
 
-def render_question(row, answers, key_suffix):
+# CORRECTION DE LA CLEF : Ajout de phase_name
+def render_question(row, answers, phase_name, key_suffix):
     """Affiche un widget Streamlit."""
     q_id = int(row['id'])
     q_text = row['question']
@@ -243,7 +241,9 @@ def render_question(row, answers, key_suffix):
     q_options = str(row['options']).split(',') if row['options'] else []
     
     label_html = f"<strong>{q_id}. {q_text}</strong>" + (' <span class="mandatory">*</span>' if q_mandatory else "")
-    widget_key = f"q_{q_id}_{key_suffix}"
+    
+    # CLÉ CORRIGÉE : Utilise l'ID de question, le nom de la phase et le suffixe d'itération
+    widget_key = f"q_{q_id}_{phase_name}_{key_suffix}"
     
     current_val = answers.get(q_id)
     val = current_val
@@ -277,7 +277,6 @@ st.markdown('<div class="main-header"><h1>📝Formulaire Chantier (Cloud)</h1></
 if st.session_state['step'] == 'PROJECT_LOAD':
     st.info("Tentative de chargement de la structure des formulaires...")
     with st.spinner("Chargement en cours..."):
-        # Les fonctions @st.cache_data garantissent qu'on ne fait pas de requête Firestore à chaque rerun
         df_struct = load_form_structure_from_firestore()
         df_site = load_site_data_from_firestore()
         
@@ -287,12 +286,11 @@ if st.session_state['step'] == 'PROJECT_LOAD':
             st.session_state['step'] = 'PROJECT'
             st.rerun()
         else:
-            st.error("Impossible de charger les données. Veuillez vérifier les collections 'formsquestions' et 'Sites' dans la console Firebase et la console Streamlit pour les logs d'erreurs détaillés.")
+            st.error("Impossible de charger les données. Veuillez vérifier les collections 'formsquestions' et 'Sites'.")
             if st.button("Réessayer le chargement"):
-                # Force le rechargement en effaçant le cache
                 load_form_structure_from_firestore.clear()
                 load_site_data_from_firestore.clear()
-                st.session_state['step'] = 'PROJECT_LOAD' # Assure le retour à cette étape
+                st.session_state['step'] = 'PROJECT_LOAD'
                 st.rerun()
 
 # 2. SÉLECTION PROJET
@@ -328,7 +326,8 @@ elif st.session_state['step'] == 'IDENTIFICATION':
     
     for _, row in identification_questions.iterrows():
         if check_condition(row, st.session_state['current_phase_temp'], st.session_state['collected_data']):
-            render_question(row, st.session_state['current_phase_temp'], st.session_state['iteration_id'])
+            # APPEL CORRIGÉ (Ajout de ID_SECTION_NAME)
+            render_question(row, st.session_state['current_phase_temp'], ID_SECTION_NAME, st.session_state['iteration_id'])
             
     st.markdown("---")
     
@@ -419,7 +418,8 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             visible_count = 0
             for _, row in section_questions.iterrows():
                 if check_condition(row, st.session_state['current_phase_temp'], st.session_state['collected_data']):
-                    render_question(row, st.session_state['current_phase_temp'], st.session_state['iteration_id'])
+                    # APPEL CORRIGÉ (Ajout de current_phase)
+                    render_question(row, st.session_state['current_phase_temp'], current_phase, st.session_state['iteration_id'])
                     visible_count += 1
             
             if visible_count == 0:
