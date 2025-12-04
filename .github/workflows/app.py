@@ -63,7 +63,7 @@ def initialize_firebase():
 
 db = initialize_firebase()
 
-# --- FONCTIONS DE CHARGEMENT ET SAUVEGARDE FIREBASE (modifiées pour les listes de fichiers) ---
+# --- FONCTIONS DE CHARGEMENT ET SAUVEGARDE FIREBASE (inchangées) ---
 
 @st.cache_data(ttl=3600)
 def load_form_structure_from_firestore():
@@ -173,7 +173,7 @@ def save_form_data(collected_data, project_data):
     except Exception as e:
         return False, str(e)
 
-# --- FONCTIONS EXPORT (modifiées pour les listes de fichiers) ---
+# --- FONCTIONS EXPORT (inchangées) ---
 
 def create_csv_export(collected_data, df_struct):
     """Gère les listes de fichiers dans l'export CSV et ajoute l'ID/dates."""
@@ -271,7 +271,7 @@ def init_session_state():
 
 init_session_state()
 
-# --- LOGIQUE MÉTIER (mise à jour de la validation pour gérer les listes) ---
+# --- LOGIQUE MÉTIER (inchangée) ---
 
 def check_condition(row, current_answers, collected_data):
     # Logique de condition inchangée
@@ -318,10 +318,10 @@ def validate_section(df_questions, section_name, answers, collected_data):
 validate_phase = validate_section
 validate_identification = validate_section
 
-# --- COMPOSANTS UI (modifiés pour les photos multiples) ---
+# --- COMPOSANTS UI (MODIFIÉ : Gestion de l'entier pour l'ID 9) ---
 
 def render_question(row, answers, phase_name, key_suffix, loop_index):
-    """Utilise 'accept_multiple_files=True' pour les photos."""
+    """Utilise 'accept_multiple_files=True' pour les photos et gère l'ID 9 comme un entier."""
     q_id = int(row['id'])
     q_text = row['question']
     q_type = str(row['type']).strip().lower()
@@ -349,9 +349,34 @@ def render_question(row, answers, phase_name, key_suffix, loop_index):
         if "" not in clean_opts: clean_opts.insert(0, "")
         idx = clean_opts.index(current_val) if current_val in clean_opts else 0
         val = st.selectbox("Sélection", clean_opts, index=idx, key=widget_key, label_visibility="collapsed")
+    
+    # --- MODIFICATION POUR ID 9 ---
     elif q_type == 'number':
-        default_val = float(current_val) if current_val else 0.0
-        val = st.number_input("Nombre", value=default_val, key=widget_key, label_visibility="collapsed")
+        if q_id == 9:
+            # Forcer les entiers pour l'ID 9
+            
+            # Assurer que la valeur par défaut est un entier si possible
+            if current_val is not None:
+                try:
+                    default_val = int(float(current_val))
+                except (ValueError, TypeError):
+                    default_val = 0
+            else:
+                default_val = 0
+                
+            val = st.number_input(
+                "Nombre (entier)", 
+                value=default_val, 
+                step=1, 
+                format="%d", # Force l'affichage d'un entier
+                key=widget_key, 
+                label_visibility="collapsed"
+            )
+        else:
+            # Comportement par défaut pour les autres nombres (décimaux autorisés)
+            default_val = float(current_val) if current_val and str(current_val).replace('.', '', 1).isdigit() else 0.0
+            val = st.number_input("Nombre", value=default_val, key=widget_key, label_visibility="collapsed")
+    # --- FIN MODIFICATION ID 9 ---
         
     elif q_type == 'photo':
         # Ajout de accept_multiple_files=True
@@ -380,7 +405,7 @@ def render_question(row, answers, phase_name, key_suffix, loop_index):
     elif current_val is not None:
         answers[q_id] = current_val
 
-# --- FLUX PRINCIPAL ---
+# --- FLUX PRINCIPAL (inchangé) ---
 
 st.markdown('<div class="main-header"><h1>📝Formulaire Chantier (Cloud)</h1></div>', unsafe_allow_html=True)
 
@@ -411,7 +436,6 @@ elif st.session_state['step'] == 'PROJECT':
         st.error("Colonne 'Intitulé' manquante.")
     else:
         
-        # --- [MODIFICATION] Recherche par saisie (3 caractères minimum) ---
         search_term = st.text_input("Rechercher un projet (3 caractères minimum)", key="project_search_input").strip()
 
         filtered_projects = []
@@ -431,7 +455,6 @@ elif st.session_state['step'] == 'PROJECT':
         elif len(search_term) > 0 and len(search_term) < 3:
             st.info("Veuillez entrer au moins **3 caractères** pour lancer la recherche.")
         
-        # --- Fin Modification Recherche ---
         
         if selected_proj:
             row = df_site[df_site['Intitulé'] == selected_proj].iloc[0]
