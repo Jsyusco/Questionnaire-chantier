@@ -553,8 +553,6 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
                 # Utilisation de Markdown pour un affichage "clé : valeur" minimaliste
                 st.markdown(f"**{renamed_key}** : {value}")
         
-   
-
         # Ligne 2 : Les Nouveaux Déploiements (Ordre 4, 5, 6)
         st.markdown("#### 2. Déploiement Standard")
         cols2 = st.columns([1, 1, 1])
@@ -564,8 +562,6 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             value = project_details.get(field_key, 'N/A')
             with cols2[i]:
                 st.markdown(f"**{renamed_key}** : {value}")
-
-        st.markdown("---")
 
         # Ligne 3 : Les Déploiements Pré-équipés (Ordre 7, 8, 9)
         st.markdown("#### 3. Déploiement Pré-équipé")
@@ -577,7 +573,6 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             with cols3[i]:
                 st.markdown(f"**{renamed_key}** : {value}")
 
-        st.markdown("---") 
         # --- FIN AFFICHAGE COMPACT DU PROJET ---
         
         st.write("--- Phases et Identification déjà complétées ---")
