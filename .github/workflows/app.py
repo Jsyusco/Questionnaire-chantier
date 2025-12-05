@@ -445,12 +445,17 @@ def validate_section(df_questions, section_name, answers, collected_data):
                     f"{error_message}"
                 )
 
-    # 4. Nettoyage du Commentaire
+# 4. Nettoyage du Commentaire
     # Si le compte est bon, on supprime le commentaire s'il existe (pour ne pas polluer la BDD)
     if not is_photo_count_incorrect and COMMENT_ID in answers:
         del answers[COMMENT_ID]
 
     return len(missing) == 0, missing
+
+# --- LIGNES À AJOUTER OU VÉRIFIER ---
+validate_phase = validate_section
+validate_identification = validate_section
+# ----
 
 # -----------------------------------------------------------
 # --- COMPOSANTS UI (inchangés, sauf le cas du COMMENT_ID dans render_question) ---
