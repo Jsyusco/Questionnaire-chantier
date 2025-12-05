@@ -780,7 +780,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             is_photo_rule_active = expected is not None and expected > 0
             
             if is_photo_rule_active:
-                st.info(f"📸 **Attente Photos :** Il est attendu **{expected}** photos pour cette section (Total des bornes : {details}).")
+                st.info(f"📸 **Photos :** Il est attendu **{expected}** photos pour cette section (Total des bornes : {details}).")
             st.divider()
             
             # Bouton pour changer de phase
