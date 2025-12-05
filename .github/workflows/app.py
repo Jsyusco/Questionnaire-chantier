@@ -29,7 +29,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- NOUVELLE LOGIQUE DE RENOMMAGE ET D'AFFICHAGE DU PROJET ---
+# --- NOUVELLE LOGIQUE DE RENOMMAGE ET D'AFFICHAGE DU PROJET (inchangée) ---
 
 PROJECT_RENAME_MAP = {
     'Intitulé': 'Intitulé',
@@ -53,7 +53,7 @@ DISPLAY_GROUPS = [
 ]
 
 # -----------------------------------------------------------
-# --- LOGIQUE D'ATTENTE DE PHOTOS ---
+# --- LOGIQUE D'ATTENTE DE PHOTOS (inchangée) ---
 # -----------------------------------------------------------
 
 # Dictionnaire : "Nom de la Section" : ["Colonne1 à additionner", "Colonne2 à additionner", ...]
@@ -89,7 +89,7 @@ def get_expected_photo_count(section_name, project_data):
     detail_str = " + ".join(details)
     return total_expected, detail_str
 
-# --- INITIALISATION FIREBASE SÉCURISÉE ---
+# --- INITIALISATION FIREBASE SÉCURISÉE (inchangée) ---
 def initialize_firebase():
     """Initialise Firebase avec les secrets individuels et force l'ID du projet."""
     if not firebase_admin._apps:
@@ -123,7 +123,7 @@ def initialize_firebase():
 
 db = initialize_firebase()
 
-# --- FONCTIONS DE CHARGEMENT ET SAUVEGARDE FIREBASE ---
+# --- FONCTIONS DE CHARGEMENT ET SAUVEGARDE FIREBASE (inchangées) ---
 
 @st.cache_data(ttl=3600)
 def load_form_structure_from_firestore():
@@ -231,7 +231,7 @@ def save_form_data(collected_data, project_data):
     except Exception as e:
         return False, str(e)
 
-# --- FONCTIONS EXPORT ---
+# --- FONCTIONS EXPORT (inchangées) ---
 
 def create_csv_export(collected_data, df_struct):
     """Gère les listes de fichiers dans l'export CSV et ajoute l'ID/dates."""
@@ -324,7 +324,8 @@ def init_session_state():
         'data_saved': False,
         'id_rendering_ident': None,
         'form_start_time': None,
-        'submission_id': None
+        'submission_id': None,
+        'show_comment_on_error': False # NOUVEAU: Drapeau pour afficher le commentaire après échec de validation
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -332,7 +333,7 @@ def init_session_state():
 
 init_session_state()
 
-# --- LOGIQUE MÉTIER ---
+# --- LOGIQUE MÉTIER (inchangée) ---
 
 def check_condition(row, current_answers, collected_data):
     # Logique de condition inchangée
@@ -359,9 +360,8 @@ def check_condition(row, current_answers, collected_data):
     except Exception: return True
 
 # -----------------------------------------------------------
-# --- FONCTION VALIDATION (inchangée suite à la correction précédente) ---
+# --- FONCTION VALIDATION (Clé de la logique) ---
 # -----------------------------------------------------------
-# ID Arbitraire pour le champ de commentaire dynamique
 COMMENT_ID = 1000
 COMMENT_QUESTION = "Veuillez préciser pourquoi le nombre de photo partagé ne correspond pas au minimum attendu"
 
@@ -387,11 +387,10 @@ def validate_section(df_questions, section_name, answers, collected_data):
             elif val is None or val == "" or (isinstance(val, (int, float)) and val == 0):
                 missing.append(f"Question {q_id} : {row['question']}")
 
-    # 2. Validation du Nombre de Photos (Logique)
+    # 2. Validation du Nombre de Photos
     project_data = st.session_state.get('project_data', {})
     expected_total, detail_str = get_expected_photo_count(section_name, project_data)
     
-    # Indicateur si un écart est détecté
     is_photo_count_incorrect = False
 
     if expected_total is not None and expected_total > 0:
@@ -411,31 +410,31 @@ def validate_section(df_questions, section_name, answers, collected_data):
         if photo_questions_found and current_photo_count != expected_total:
             is_photo_count_incorrect = True
             
-            # Affichage de l'erreur (Markdown-safe)
-            st.error(
+            # Affichage de l'erreur
+            error_message = (
                 f"⚠️ **Écart de Photos pour '{str(section_name)}'**.\n\n"
                 f"Attendu : **{str(expected_total)}** (calculé : {str(detail_str)}).\n\n"
                 f"Reçu : **{str(current_photo_count)}**.\n\n"
-                f"Veuillez remplir le champ de commentaire ci-dessous."
+                f"Veuillez remplir le champ de commentaire."
             )
-        
-    # 3. Validation du Commentaire Conditionnel
-    comment_val = answers.get(COMMENT_ID)
-    
-    if is_photo_count_incorrect:
-        # Si un écart est trouvé, le commentaire ID 1000 devient OBLIGATOIRE
-        if not comment_val or str(comment_val).strip() == "":
-            missing.append(
-                f"**Commentaire (ID {COMMENT_ID}) :** {COMMENT_QUESTION} "
-                f"(requis en raison de l'écart de photo : Attendu {expected_total}, Reçu {current_photo_count})."
-            )
-        else:
-            # Si le commentaire est présent, l'écart est enregistré, mais la validation passe
-            pass
-    else:
-        # Si aucun écart n'est trouvé, s'assurer que le commentaire est retiré des réponses
-        if COMMENT_ID in answers:
-            del answers[COMMENT_ID]
+            # Nous ajoutons l'erreur, mais ne l'affichons pas immédiatement (Streamlit le fera via les 'missing')
+
+            # Si écart, le commentaire ID 1000 devient OBLIGATOIRE
+            comment_val = answers.get(COMMENT_ID)
+            if not comment_val or str(comment_val).strip() == "":
+                # Ajout de l'erreur standard pour le commentaire
+                missing.append(
+                    f"**Commentaire (ID {COMMENT_ID}) :** {COMMENT_QUESTION} "
+                    f"(requis en raison de l'écart de photo : Attendu {expected_total}, Reçu {current_photo_count}).\n\n"
+                    f"{error_message}"
+                )
+            # Note: Si le commentaire est déjà là, l'écart est considéré comme justifié pour la validation
+
+    # 3. Nettoyage du Commentaire (crucial avant de renvoyer)
+    # Si le champ 1000 est dans les réponses MAIS qu'il n'y a PAS d'écart, on le supprime.
+    # Ceci est fait ici pour éviter qu'il ne soit sauvegardé s'il a été rempli par erreur.
+    if not is_photo_count_incorrect and COMMENT_ID in answers:
+        del answers[COMMENT_ID]
 
 
     return len(missing) == 0, missing
@@ -444,25 +443,22 @@ validate_phase = validate_section
 validate_identification = validate_section
 
 # -----------------------------------------------------------
-# --- COMPOSANTS UI ---
+# --- COMPOSANTS UI (inchangés, sauf le cas du COMMENT_ID dans render_question) ---
 # -----------------------------------------------------------
 
 def render_question(row, answers, phase_name, key_suffix, loop_index):
     """Gère l'affichage des questions, y compris le champ de commentaire dynamique (ID 1000)."""
     
-    # 1. Extraction des données de la question
-    q_id = int(row.get('id', 0)) # Sûr que q_id est un int
+    q_id = int(row.get('id', 0))
     
-    # Cas Spécial pour le commentaire dynamique
     is_dynamic_comment = q_id == COMMENT_ID
     if is_dynamic_comment:
         q_text = COMMENT_QUESTION
-        q_type = 'text' # ou textarea, mais 'text' est suffisant pour le moment
+        q_type = 'text' 
         q_desc = "Ce champ est obligatoire si le nombre de photos n'est pas conforme."
-        q_mandatory = True
+        q_mandatory = True # Forcé à obligatoire s'il est rendu
         q_options = []
     else:
-        # Cas des questions normales
         q_text = row['question']
         q_type = str(row['type']).strip().lower()
         q_desc = row['Description']
@@ -481,7 +477,8 @@ def render_question(row, answers, phase_name, key_suffix, loop_index):
 
     # 2. Rendu du widget
     st.markdown(f'<div class="question-card"><div>{label_html}</div>', unsafe_allow_html=True)
-    if q_desc: st.markdown(f'<div class="description">{q_desc}</div>', unsafe_allow_html=True)
+    if q_desc and not is_dynamic_comment: st.markdown(f'<div class="description">{q_desc}</div>', unsafe_allow_html=True)
+    if is_dynamic_comment: st.markdown(f'<div class="description">{q_desc}</div>', unsafe_allow_html=True)
 
     if q_type == 'text':
         # Utilisation de text_area pour le commentaire (ID 1000) pour plus de place
@@ -543,12 +540,18 @@ def render_question(row, answers, phase_name, key_suffix, loop_index):
         answers[q_id] = val 
     elif current_val is not None and not is_dynamic_comment:
         answers[q_id] = current_val
+    elif is_dynamic_comment and (val is None or val.strip() == ""):
+        # Assurer que la clé est retirée si le champ est vide et que c'est le commentaire
+        if q_id in answers:
+            del answers[q_id]
 
-# --- FLUX PRINCIPAL (inchangé) ---
+
+# --- FLUX PRINCIPAL (Partie modifiée) ---
 
 st.markdown('<div class="main-header"><h1>📝Formulaire Chantier </h1></div>', unsafe_allow_html=True)
 
 if st.session_state['step'] == 'PROJECT_LOAD':
+    # Logique inchangée
     st.info("Tentative de chargement de la structure des formulaires...")
     with st.spinner("Chargement en cours..."):
         df_struct = load_form_structure_from_firestore()
@@ -608,6 +611,7 @@ elif st.session_state['step'] == 'PROJECT':
                 st.session_state['current_phase_temp'] = {}
                 st.session_state['iteration_id'] = str(uuid.uuid4())
                 st.session_state['id_rendering_ident'] = None
+                st.session_state['show_comment_on_error'] = False # Reset
                 st.rerun()
 
 elif st.session_state['step'] == 'IDENTIFICATION':
@@ -645,6 +649,7 @@ elif st.session_state['step'] == 'IDENTIFICATION':
             st.session_state['identification_completed'] = True
             st.session_state['step'] = 'LOOP_DECISION'
             st.session_state['current_phase_temp'] = {}
+            st.session_state['show_comment_on_error'] = False # Reset
             st.success("Identification validée.")
             st.rerun()
         else:
@@ -698,6 +703,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
                 st.session_state['current_phase_temp'] = {}
                 st.session_state['current_phase_name'] = None
                 st.session_state['iteration_id'] = str(uuid.uuid4())
+                st.session_state['show_comment_on_error'] = False # Reset
                 st.rerun()
         with col2:
             if st.button("🏁 Terminer l'audit"):
@@ -729,28 +735,27 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
               if st.button("⬅️ Retour"):
                   st.session_state['step'] = 'LOOP_DECISION'
                   st.session_state['current_phase_temp'] = {}
+                  st.session_state['show_comment_on_error'] = False # Reset
                   st.rerun()
         else:
             current_phase = st.session_state['current_phase_name']
             st.markdown(f"### 📝 {current_phase}")
             
-            # ------------------------------------------------------------------
-            # --- CALCUL ET AFFICHAGE DE L'ATTENTE PHOTO ---
-            # ------------------------------------------------------------------
+            # --- AFFICHAGE DE L'ATTENTE PHOTO ---
             expected, details = get_expected_photo_count(current_phase, st.session_state['project_data'])
-            
-            # Booléen pour savoir si l'écart est attendu
             is_photo_rule_active = expected is not None and expected > 0
             
             if is_photo_rule_active:
                 st.info(f"📸 **Attente Photos :** Il est attendu **{expected}** photos pour cette section (Total des bornes : {details}).")
-            # ------------------------------------------------------------------
 
             st.markdown("---")
+            
+            # Bouton pour changer de phase (inchangé)
             if st.button("🔄 Changer de phase"):
                 st.session_state['current_phase_name'] = None
                 st.session_state['current_phase_temp'] = {}
                 st.session_state['iteration_id'] = str(uuid.uuid4())
+                st.session_state['show_comment_on_error'] = False # Reset
                 st.rerun()
             
             st.markdown("---")
@@ -759,52 +764,54 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             
             visible_count = 0
             for idx, (index, row) in enumerate(section_questions.iterrows()):
-                # Ne pas rendre le champ de commentaire si c'est la question 1000
+                # On ne rend pas le commentaire 1000 ici, il est rendu conditionnellement plus tard
                 if int(row.get('id', 0)) == COMMENT_ID: continue
 
                 if check_condition(row, st.session_state['current_phase_temp'], st.session_state['collected_data']):
                     render_question(row, st.session_state['current_phase_temp'], current_phase, st.session_state['iteration_id'], idx)
                     visible_count += 1
             
-            # ------------------------------------------------------------------
-            # --- RENDU CONDITIONNEL DU COMMENTAIRE (Modifié) ---
-            # ------------------------------------------------------------------
-            # Effectuer une pré-validation pour voir si le commentaire DOIT être affiché
-            
-            # Note: Nous utilisons le même calcul que dans validate_section
-            current_photo_count = 0
-            for _, row in section_questions.iterrows():
-                if str(row['type']).strip().lower() == 'photo':
-                    q_id = int(row['id'])
-                    val = st.session_state['current_phase_temp'].get(q_id)
-                    if isinstance(val, list):
-                        current_photo_count += len(val)
-
-            is_photo_count_incorrect = is_photo_rule_active and current_photo_count != expected
-
-            if is_photo_count_incorrect:
-                # Créer une ligne de question temporaire pour l'ID 1000
-                comment_row = pd.Series({'id': COMMENT_ID})
-                # Rendre le champ de commentaire
-                render_question(comment_row, st.session_state['current_phase_temp'], current_phase, st.session_state['iteration_id'], 999) # Utilise un index élevé
-            else:
-                # NOUVEAU : Supprimer la réponse du commentaire si l'écart est corrigé ou inexistant
-                if COMMENT_ID in st.session_state['current_phase_temp']:
-                    del st.session_state['current_phase_temp'][COMMENT_ID]
-            # ------------------------------------------------------------------
-
-            if visible_count == 0 and not is_photo_count_incorrect:
+            if visible_count == 0 and not st.session_state.get('show_comment_on_error', False):
                 st.warning("Aucune question visible.")
 
+            
+            # ------------------------------------------------------------------
+            # --- RENDU CONDITIONNEL DU COMMENTAIRE (APRÈS ÉCHEC DE VALIDATION) ---
+            # ------------------------------------------------------------------
+            
+            if st.session_state.get('show_comment_on_error', False):
+                st.markdown("---")
+                st.markdown("### ✍️ Justification de l'Écart")
+                
+                # Créer une ligne de question temporaire pour l'ID 1000
+                comment_row = pd.Series({'id': COMMENT_ID})
+                
+                # Rendre le champ de commentaire
+                render_question(comment_row, st.session_state['current_phase_temp'], current_phase, st.session_state['iteration_id'], 999) 
+            
             st.markdown("---")
             
+            # ------------------------------------------------------------------
+            # --- LOGIQUE DES BOUTONS (Unique et centralisée) ---
+            # ------------------------------------------------------------------
+            
             c1, c2 = st.columns([1, 2])
+            
             with c1:
+                # Bouton Annuler/Retour
                 if st.button("❌ Annuler"):
                     st.session_state['step'] = 'LOOP_DECISION'
+                    st.session_state['show_comment_on_error'] = False # Reset
                     st.rerun()
+                    
             with c2:
+                # Bouton Valider la phase
                 if st.button("💾 Valider la phase"):
+                    
+                    # 1. Réinitialiser le drapeau (l'erreur est vérifiée à chaque validation)
+                    st.session_state['show_comment_on_error'] = False 
+                    
+                    # 2. Lancer la validation
                     is_valid, errors = validate_phase(
                         df, current_phase, st.session_state['current_phase_temp'], st.session_state['collected_data']
                     )
@@ -820,8 +827,16 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
                         st.session_state['step'] = 'LOOP_DECISION'
                         st.rerun()
                     else:
+                        # 3. Vérifier si l'erreur concerne l'écart photo pour afficher le champ 1000
+                        is_photo_error = any(f"Commentaire (ID {COMMENT_ID})" in e for e in errors)
+                        
+                        if is_photo_error:
+                            st.session_state['show_comment_on_error'] = True
+                        
                         html_errors = '<br>'.join([f"- {e}" for e in errors])
                         st.markdown(f'<div class="error-box"><b>⚠️ Erreurs :</b><br>{html_errors}</div>', unsafe_allow_html=True)
+                        # Relancer la page pour afficher le champ de commentaire si show_comment_on_error est True
+                        st.rerun()
             
             st.markdown('</div>', unsafe_allow_html=True)
 
