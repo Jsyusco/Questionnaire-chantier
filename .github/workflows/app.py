@@ -678,7 +678,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
     with st.expander(f"📍 Projet : {project_intitule}", expanded=False):
         project_details = st.session_state['project_data']
 
-        st.markdown(":orange-badge[**Détails du Projet sélectionné**]")
+        st.markdown(":orange-badge[**Détails du Projet sélectionné :**]")
         
         cols1 = st.columns([1, 1, 1]) 
         fields_l1 = DISPLAY_GROUPS[0]
@@ -706,7 +706,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             with cols3[i]:
                 st.markdown(f"**{renamed_key}** : {value}")
         
-        st.write(":orange-badge[**Phases et Identification déjà complétées**]")
+        st.write(":orange-badge[**Phases et Identification déjà complétées :**]")
         for idx, item in enumerate(st.session_state['collected_data']):
             st.write(f"• **{item['phase_name']}** : {len(item['answers'])} réponses")
 
