@@ -359,7 +359,7 @@ def check_condition(row, current_answers, collected_data):
     except Exception: return True
 
 # -----------------------------------------------------------
-# --- FONCTION VALIDATION (CORRIGÉE : SUPPRESSION unsafe_allow_html) ---
+# --- FONCTION VALIDATION (inchangée suite à la correction précédente) ---
 # -----------------------------------------------------------
 # ID Arbitraire pour le champ de commentaire dynamique
 COMMENT_ID = 1000
@@ -411,8 +411,7 @@ def validate_section(df_questions, section_name, answers, collected_data):
         if photo_questions_found and current_photo_count != expected_total:
             is_photo_count_incorrect = True
             
-            # --- CORRECTION ICI : Utilisation de Markdown au lieu de HTML avec unsafe_allow_html ---
-            # On utilise ** pour le gras et \n pour les sauts de ligne
+            # Affichage de l'erreur (Markdown-safe)
             st.error(
                 f"⚠️ **Écart de Photos pour '{str(section_name)}'**.\n\n"
                 f"Attendu : **{str(expected_total)}** (calculé : {str(detail_str)}).\n\n"
@@ -607,7 +606,7 @@ elif st.session_state['step'] == 'PROJECT':
                 st.session_state['submission_id'] = str(uuid.uuid4())
                 st.session_state['step'] = 'IDENTIFICATION'
                 st.session_state['current_phase_temp'] = {}
-                st.session_state['iteration_id'] = str(uuid.uuid4()) 
+                st.session_state['iteration_id'] = str(uuid.uuid4())
                 st.session_state['id_rendering_ident'] = None
                 st.rerun()
 
@@ -625,7 +624,7 @@ elif st.session_state['step'] == 'IDENTIFICATION':
     
     rendering_id = st.session_state['id_rendering_ident']
     
-    for idx, (index, row) in enumerate(identification_questions.iterrows()):
+    for idx, (index, row) in identification_questions.iterrows():
         if check_condition(row, st.session_state['current_phase_temp'], st.session_state['collected_data']):
             # Aucune question ID 1000 ne devrait être rendue ici
             render_question(row, st.session_state['current_phase_temp'], ID_SECTION_NAME, rendering_id, idx)
@@ -768,7 +767,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
                     visible_count += 1
             
             # ------------------------------------------------------------------
-            # --- RENDU CONDITIONNEL DU COMMENTAIRE (Logique inchangée) ---
+            # --- RENDU CONDITIONNEL DU COMMENTAIRE (Modifié) ---
             # ------------------------------------------------------------------
             # Effectuer une pré-validation pour voir si le commentaire DOIT être affiché
             
@@ -788,8 +787,11 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
                 comment_row = pd.Series({'id': COMMENT_ID})
                 # Rendre le champ de commentaire
                 render_question(comment_row, st.session_state['current_phase_temp'], current_phase, st.session_state['iteration_id'], 999) # Utilise un index élevé
+            else:
+                # NOUVEAU : Supprimer la réponse du commentaire si l'écart est corrigé ou inexistant
+                if COMMENT_ID in st.session_state['current_phase_temp']:
+                    del st.session_state['current_phase_temp'][COMMENT_ID]
             # ------------------------------------------------------------------
-
 
             if visible_count == 0 and not is_photo_count_incorrect:
                 st.warning("Aucune question visible.")
