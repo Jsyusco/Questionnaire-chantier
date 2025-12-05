@@ -678,7 +678,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
     with st.expander(f"📍 Projet : {project_intitule}", expanded=False):
         project_details = st.session_state['project_data']
 
-        st.write("**Détails du Projet Sélectionné**")
+        st.badge("**Détails du Projet Sélectionné**", color="gray")
         
         cols1 = st.columns([1, 1, 1]) 
         fields_l1 = DISPLAY_GROUPS[0]
