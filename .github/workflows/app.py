@@ -716,8 +716,6 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
         
         st.write(":orange-badge[**Phases et Identification déjà complétées :**]")
         for idx, item in enumerate(st.session_state['collected_data']):
-            ...
-
             st.write(f"• **{item['phase_name']}** : {len(item['answers'])} réponses")
 
     if st.session_state['step'] == 'LOOP_DECISION':
