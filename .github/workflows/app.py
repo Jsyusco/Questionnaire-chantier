@@ -360,7 +360,7 @@ def check_condition(row, current_answers, collected_data):
     except Exception: return True
 
 # -----------------------------------------------------------
-# --- FONCTION VALIDATION (Clé de la logique) ---
+# --- FONCTION VALIDATION CORRIGÉE (Pour Bug 3) ---
 # -----------------------------------------------------------
 COMMENT_ID = 1000
 COMMENT_QUESTION = "Veuillez préciser pourquoi le nombre de photo partagé ne correspond pas au minimum attendu"
@@ -369,62 +369,67 @@ def validate_section(df_questions, section_name, answers, collected_data):
     missing = []
     section_rows = df_questions[df_questions['section'] == section_name]
     
-    # 1. NEW: Détecter la présence d'une justification (Bug 2 Fix)
+    # 1. PRÉ-CALCULS (Nouveau)
     comment_val = answers.get(COMMENT_ID)
     has_justification = comment_val is not None and str(comment_val).strip() != ""
     
-    # 1. Validation Standard (Champs obligatoires)
+    project_data = st.session_state.get('project_data', {})
+    expected_total, detail_str = get_expected_photo_count(section_name.strip(), project_data)
+    
+    current_photo_count = 0
+    photo_questions_found = False
+    
+    # Calculer le nombre actuel de photos (pour toute la section)
     for _, row in section_rows.iterrows():
-        # Ignorer l'ID 1000 s'il n'est pas dans le DF (il est géré séparément)
+        if str(row['type']).strip().lower() == 'photo':
+            photo_questions_found = True
+            q_id = int(row['id'])
+            val = answers.get(q_id)
+            if isinstance(val, list):
+                current_photo_count += len(val)
+
+    # Déterminer si la vérification de quantité est suffisante (ou non applicable)
+    is_count_sufficient = expected_total is None or expected_total == 0 or (
+        expected_total > 0 and current_photo_count >= expected_total
+    )
+    
+    # 2. VALIDATION DES CHAMPS OBLIGATOIRES
+    for _, row in section_rows.iterrows():
         if int(row['id']) == COMMENT_ID: continue
 
         if not check_condition(row, answers, collected_data): continue
         is_mandatory = str(row['obligatoire']).strip().lower() == 'oui'
         
         q_id = int(row['id'])
-        q_type = str(row['type']).strip().lower() # Récupérer le type
+        q_type = str(row['type']).strip().lower()
         val = answers.get(q_id)
         
         if is_mandatory:
-            # --- CORRECTION BUG 2 ---
-            # Si le champ est une photo OBLIGATOIRE ET qu'on a une justification valide,
-            # on ignore le fait que le champ soit vide (pour ne pas bloquer l'exit).
-            if q_type == 'photo' and has_justification:
-                continue
-            # ------------------------
             
+            # --- CORRECTION BUG 3 (Clé du fix) ---
+            # Le champ photo OBLIGATOIRE est ignoré si :
+            # 1. Le total minimum requis est atteint (is_count_sufficient = True)
+            # OU
+            # 2. Une justification a été fournie (has_justification = True)
+            if q_type == 'photo' and (is_count_sufficient or has_justification):
+                continue
+            
+            # ------------------------------------
+            
+            # Validation classique pour les autres types de champs et les photos si les conditions ci-dessus ne sont pas remplies
             if isinstance(val, list):
                 if not val:
                     missing.append(f"Question {q_id} : {row['question']} (photo(s) manquante(s))")
             elif val is None or val == "" or (isinstance(val, (int, float)) and val == 0):
                 missing.append(f"Question {q_id} : {row['question']}")
 
-    # 2. Validation du Nombre de Photos
-    project_data = st.session_state.get('project_data', {})
-    # --- CORRECTION BUG 1 (Robustesse) ---
-    # S'assurer que le nom de la section est strippé pour matcher la clé du dictionnaire.
-    expected_total, detail_str = get_expected_photo_count(section_name.strip(), project_data)
-    
+    # 3. VALIDATION DU NOMBRE DE PHOTOS (Rend le commentaire ID 1000 obligatoire si écart)
     is_photo_count_incorrect = False
 
     if expected_total is not None and expected_total > 0:
-        current_photo_count = 0
-        photo_questions_found = False
-        
-        # Compter le total des fichiers uploadés (uniques ou multiples) dans la section
-        for _, row in section_rows.iterrows():
-            if str(row['type']).strip().lower() == 'photo':
-                photo_questions_found = True
-                q_id = int(row['id'])
-                val = answers.get(q_id)
-                if isinstance(val, list):
-                    current_photo_count += len(val)
-        
-        # Comparaison
         if photo_questions_found and current_photo_count != expected_total:
             is_photo_count_incorrect = True
             
-            # Affichage de l'erreur
             error_message = (
                 f"⚠️ **Écart de Photos pour '{str(section_name)}'**.\n\n"
                 f"Attendu : **{str(expected_total)}** (calculé : {str(detail_str)}).\n\n"
@@ -432,25 +437,20 @@ def validate_section(df_questions, section_name, answers, collected_data):
                 f"Veuillez remplir le champ de commentaire."
             )
 
-            # Si écart, le commentaire ID 1000 devient OBLIGATOIRE
+            # Si écart constaté ET pas de justification -> Erreur bloquante
             if not has_justification:
-                # Ajout de l'erreur standard pour le commentaire
                 missing.append(
                     f"**Commentaire (ID {COMMENT_ID}) :** {COMMENT_QUESTION} "
                     f"(requis en raison de l'écart de photo : Attendu {expected_total}, Reçu {current_photo_count}).\n\n"
                     f"{error_message}"
                 )
 
-    # 3. Nettoyage du Commentaire
+    # 4. Nettoyage du Commentaire
     # Si le compte est bon, on supprime le commentaire s'il existe (pour ne pas polluer la BDD)
     if not is_photo_count_incorrect and COMMENT_ID in answers:
         del answers[COMMENT_ID]
 
-
     return len(missing) == 0, missing
-
-validate_phase = validate_section
-validate_identification = validate_section
 
 # -----------------------------------------------------------
 # --- COMPOSANTS UI (inchangés, sauf le cas du COMMENT_ID dans render_question) ---
