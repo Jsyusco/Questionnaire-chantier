@@ -360,27 +360,36 @@ def check_condition(row, current_answers, collected_data):
     except Exception: return True
 
 # -----------------------------------------------------------
-# --- FONCTION VALIDATION (Clé de la logique) ---
+# --- FONCTION VALIDATION CORRIGÉE ---
 # -----------------------------------------------------------
-COMMENT_ID = 1000
-COMMENT_QUESTION = "Veuillez préciser pourquoi le nombre de photo partagé ne correspond pas au minimum attendu"
-
 def validate_section(df_questions, section_name, answers, collected_data):
     missing = []
     section_rows = df_questions[df_questions['section'] == section_name]
     
+    # Vérifier d'abord si une justification valide existe
+    comment_val = answers.get(COMMENT_ID)
+    has_justification = comment_val is not None and str(comment_val).strip() != ""
+
     # 1. Validation Standard (Champs obligatoires)
     for _, row in section_rows.iterrows():
-        # Ignorer l'ID 1000 s'il n'est pas dans le DF (il est géré séparément)
+        # Ignorer l'ID 1000 (géré plus bas)
         if int(row['id']) == COMMENT_ID: continue
 
         if not check_condition(row, answers, collected_data): continue
         is_mandatory = str(row['obligatoire']).strip().lower() == 'oui'
         
         q_id = int(row['id'])
+        q_type = str(row['type']).strip().lower()
         val = answers.get(q_id)
         
         if is_mandatory:
+            # --- CORRECTION BUG 2 ---
+            # Si le champ est une photo ET qu'on a une justification valide pour l'écart,
+            # on ignore le fait que le champ soit vide (ex: 0 photo).
+            if q_type == 'photo' and has_justification:
+                continue 
+            # ------------------------
+
             if isinstance(val, list):
                 if not val:
                     missing.append(f"Question {q_id} : {row['question']} (photo(s) manquante(s))")
@@ -389,7 +398,8 @@ def validate_section(df_questions, section_name, answers, collected_data):
 
     # 2. Validation du Nombre de Photos
     project_data = st.session_state.get('project_data', {})
-    expected_total, detail_str = get_expected_photo_count(section_name, project_data)
+    # Astuce pour Bug 1 : .strip() sur le nom de section pour éviter les erreurs de clé "Bornes DC "
+    expected_total, detail_str = get_expected_photo_count(section_name.strip(), project_data)
     
     is_photo_count_incorrect = False
 
@@ -397,7 +407,7 @@ def validate_section(df_questions, section_name, answers, collected_data):
         current_photo_count = 0
         photo_questions_found = False
         
-        # Compter le total des fichiers uploadés (uniques ou multiples) dans la section
+        # Compter le total des fichiers uploadés
         for _, row in section_rows.iterrows():
             if str(row['type']).strip().lower() == 'photo':
                 photo_questions_found = True
@@ -410,38 +420,29 @@ def validate_section(df_questions, section_name, answers, collected_data):
         if photo_questions_found and current_photo_count != expected_total:
             is_photo_count_incorrect = True
             
-            # Affichage de l'erreur
             error_message = (
                 f"⚠️ **Écart de Photos pour '{str(section_name)}'**.\n\n"
                 f"Attendu : **{str(expected_total)}** (calculé : {str(detail_str)}).\n\n"
                 f"Reçu : **{str(current_photo_count)}**.\n\n"
                 f"Veuillez remplir le champ de commentaire."
             )
-            # Nous ajoutons l'erreur, mais ne l'affichons pas immédiatement (Streamlit le fera via les 'missing')
 
-            # Si écart, le commentaire ID 1000 devient OBLIGATOIRE
-            comment_val = answers.get(COMMENT_ID)
-            if not comment_val or str(comment_val).strip() == "":
-                # Ajout de l'erreur standard pour le commentaire
+            # --- CORRECTION BUG 1 ---
+            # Si écart constaté ET pas de justification -> Erreur bloquante
+            if not has_justification:
                 missing.append(
                     f"**Commentaire (ID {COMMENT_ID}) :** {COMMENT_QUESTION} "
                     f"(requis en raison de l'écart de photo : Attendu {expected_total}, Reçu {current_photo_count}).\n\n"
                     f"{error_message}"
                 )
-            # Note: Si le commentaire est déjà là, l'écart est considéré comme justifié pour la validation
 
-    # 3. Nettoyage du Commentaire (crucial avant de renvoyer)
-    # Si le champ 1000 est dans les réponses MAIS qu'il n'y a PAS d'écart, on le supprime.
-    # Ceci est fait ici pour éviter qu'il ne soit sauvegardé s'il a été rempli par erreur.
+    # 3. Nettoyage du Commentaire
+    # Si le compte est bon, on supprime le commentaire s'il existe (pour ne pas polluer la BDD)
     if not is_photo_count_incorrect and COMMENT_ID in answers:
         del answers[COMMENT_ID]
 
-
     return len(missing) == 0, missing
-
-validate_phase = validate_section
-validate_identification = validate_section
-
+    
 # -----------------------------------------------------------
 # --- COMPOSANTS UI (inchangés, sauf le cas du COMMENT_ID dans render_question) ---
 # -----------------------------------------------------------
