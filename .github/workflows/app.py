@@ -682,14 +682,16 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
         st.markdown(":orange-badge[**Détails du Projet sélectionné :**]")
         
         # --- Bloc 1 : Détails généraux ---
-        cols1 = st.columns([1, 1, 1]) 
-        fields_l1 = DISPLAY_GROUPS[0]
-        for i, field_key in enumerate(fields_l1):
-            renamed_key = PROJECT_RENAME_MAP.get(field_key, field_key)
-            value = project_details.get(field_key, 'N/A')
-            with cols1[i]:
-                st.markdown(f"**{renamed_key}** : {value}")
-
+        with st.container(border=True):
+            st.markdown("**Points de charge Standard**")
+            cols1 = st.columns([1, 1, 1]) 
+            fields_l1 = DISPLAY_GROUPS[0]
+            for i, field_key in enumerate(fields_l1):
+                renamed_key = PROJECT_RENAME_MAP.get(field_key, field_key)
+                value = project_details.get(field_key, 'N/A')
+                with cols1[i]:
+                    st.markdown(f"**{renamed_key}** : {value}")
+                    
         # --- Bloc 2 : Points de charge Standard (encadré) ---
         with st.container(border=True):
             st.markdown("**Points de charge Standard**")
@@ -702,14 +704,15 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
                     st.markdown(f"**{renamed_key}** : {value}")
 
         # --- Bloc 3 : Points de charge Pré-équipés ---
-        st.markdown("**Points de charge Pré-équipés**")
-        cols3 = st.columns([1, 1, 1])
-        fields_l3 = DISPLAY_GROUPS[2]
-        for i, field_key in enumerate(fields_l3):
-            renamed_key = PROJECT_RENAME_MAP.get(field_key, field_key)
-            value = project_details.get(field_key, 'N/A')
-            with cols3[i]:
-                st.markdown(f"**{renamed_key}** : {value}")
+        with st.container(border=True):
+            st.markdown("**Points de charge Pré-équipés**")
+            cols3 = st.columns([1, 1, 1])
+            fields_l3 = DISPLAY_GROUPS[2]
+            for i, field_key in enumerate(fields_l3):
+                renamed_key = PROJECT_RENAME_MAP.get(field_key, field_key)
+                value = project_details.get(field_key, 'N/A')
+                with cols3[i]:
+                    st.markdown(f"**{renamed_key}** : {value}")
         
         st.write(":orange-badge[**Phases et Identification déjà complétées :**]")
         for idx, item in enumerate(st.session_state['collected_data']):
