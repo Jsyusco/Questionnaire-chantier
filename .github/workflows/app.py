@@ -362,7 +362,7 @@ def check_condition(row, current_answers, collected_data):
 # -----------------------------------------------------------
 # --- FONCTION VALIDATION (Inclut les corrections des bugs 1, 2, et 3) ---
 # -----------------------------------------------------------
-COMMENT_ID = 1000
+COMMENT_ID = 100
 COMMENT_QUESTION = "Veuillez préciser pourquoi le nombre de photo partagé ne correspond pas au minimum attendu"
 
 def validate_section(df_questions, section_name, answers, collected_data):
@@ -426,7 +426,7 @@ def validate_section(df_questions, section_name, answers, collected_data):
             elif val is None or val == "" or (isinstance(val, (int, float)) and val == 0):
                 missing.append(f"Question {q_id} : {row['question']}")
 
-    # 3. VALIDATION DU NOMBRE DE PHOTOS (Rend le commentaire ID 1000 obligatoire si écart)
+    # 3. VALIDATION DU NOMBRE DE PHOTOS (Rend le commentaire ID 100 obligatoire si écart)
     is_photo_count_incorrect = False
 
     if expected_total is not None and expected_total > 0:
@@ -771,8 +771,6 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             
             if is_photo_rule_active:
                 st.info(f"📸 **Attente Photos :** Il est attendu **{expected}** photos pour cette section (Total des bornes : {details}).")
-
-            st.markdown("---")
             
             # Bouton pour changer de phase
             if st.button("🔄 Changer de phase"):
