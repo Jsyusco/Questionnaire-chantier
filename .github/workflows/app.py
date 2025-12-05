@@ -672,6 +672,7 @@ elif st.session_state['step'] == 'IDENTIFICATION':
         else:
             st.markdown('<div class="error-box"><b>⚠️ Erreur de validation :</b><br>' + '<br>'.join([f"- {e}" for e in errors]) + '</div>', unsafe_allow_html=True)
 
+
 elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
     # Logique inchangée pour l'affichage du projet
     project_intitule = st.session_state['project_data'].get('Intitulé', 'Projet Inconnu')
@@ -680,6 +681,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
 
         st.markdown(":orange-badge[**Détails du Projet sélectionné :**]")
         
+        # --- Bloc 1 : Détails généraux ---
         cols1 = st.columns([1, 1, 1]) 
         fields_l1 = DISPLAY_GROUPS[0]
         for i, field_key in enumerate(fields_l1):
@@ -687,20 +689,19 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             value = project_details.get(field_key, 'N/A')
             with cols1[i]:
                 st.markdown(f"**{renamed_key}** : {value}")
-        
 
-with st.container(border=True):
-    st.markdown("**Points de charge Standard**")
-    cols2 = st.columns([1, 1, 1])
+        # --- Bloc 2 : Points de charge Standard (encadré) ---
+        with st.container(border=True):
+            st.markdown("**Points de charge Standard**")
+            cols2 = st.columns([1, 1, 1])
+            fields_l2 = DISPLAY_GROUPS[1]
+            for i, field_key in enumerate(fields_l2):
+                renamed_key = PROJECT_RENAME_MAP.get(field_key, field_key)
+                value = project_details.get(field_key, 'N/A')
+                with cols2[i]:
+                    st.markdown(f"**{renamed_key}** : {value}")
 
-    fields_l2 = DISPLAY_GROUPS[1]
-    for i, field_key in enumerate(fields_l2):
-        renamed_key = PROJECT_RENAME_MAP.get(field_key, field_key)
-        value = project_details.get(field_key, 'N/A')
-        with cols2[i]:
-            st.markdown(f"**{renamed_key}** : {value}")
-
-
+        # --- Bloc 3 : Points de charge Pré-équipés ---
         st.markdown("**Points de charge Pré-équipés**")
         cols3 = st.columns([1, 1, 1])
         fields_l3 = DISPLAY_GROUPS[2]
@@ -712,6 +713,8 @@ with st.container(border=True):
         
         st.write(":orange-badge[**Phases et Identification déjà complétées :**]")
         for idx, item in enumerate(st.session_state['collected_data']):
+            ...
+
             st.write(f"• **{item['phase_name']}** : {len(item['answers'])} réponses")
 
     if st.session_state['step'] == 'LOOP_DECISION':
