@@ -780,7 +780,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
                 st.session_state['show_comment_on_error'] = False 
                 st.rerun()
             
-            st.markdown("---")
+            st.markdown("--")
             
             section_questions = df[df['section'] == current_phase]
             
