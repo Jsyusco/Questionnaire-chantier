@@ -610,7 +610,6 @@ elif st.session_state['step'] == 'PROJECT':
                 st.session_state['step'] = 'IDENTIFICATION'
                 st.session_state['current_phase_temp'] = {}
                 st.session_state['iteration_id'] = str(uuid.uuid4())
-                st.session_state['id_rendering_ident'] = None
                 st.session_state['show_comment_on_error'] = False # Reset
                 st.rerun()
 
@@ -628,7 +627,8 @@ elif st.session_state['step'] == 'IDENTIFICATION':
     
     rendering_id = st.session_state['id_rendering_ident']
     
-    for idx, (index, row) in identification_questions.iterrows():
+    # Correction de l'erreur ValueError: utiliser enumerate pour obtenir l'indice de boucle
+    for idx, (index, row) in enumerate(identification_questions.iterrows()):
         if check_condition(row, st.session_state['current_phase_temp'], st.session_state['collected_data']):
             # Aucune question ID 1000 ne devrait être rendue ici
             render_question(row, st.session_state['current_phase_temp'], ID_SECTION_NAME, rendering_id, idx)
@@ -763,6 +763,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             section_questions = df[df['section'] == current_phase]
             
             visible_count = 0
+            # Correction de l'erreur ValueError: utiliser enumerate pour obtenir l'indice de boucle
             for idx, (index, row) in enumerate(section_questions.iterrows()):
                 # On ne rend pas le commentaire 1000 ici, il est rendu conditionnellement plus tard
                 if int(row.get('id', 0)) == COMMENT_ID: continue
