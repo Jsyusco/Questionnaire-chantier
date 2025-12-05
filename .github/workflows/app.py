@@ -325,7 +325,7 @@ def init_session_state():
         'id_rendering_ident': None,
         'form_start_time': None,
         'submission_id': None,
-        'show_comment_on_error': False # NOUVEAU: Drapeau pour afficher le commentaire après échec de validation
+        'show_comment_on_error': False # Drapeau pour afficher le commentaire après échec de validation
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -360,7 +360,7 @@ def check_condition(row, current_answers, collected_data):
     except Exception: return True
 
 # -----------------------------------------------------------
-# --- FONCTION VALIDATION CORRIGÉE (Pour Bug 3) ---
+# --- FONCTION VALIDATION (Inclut les corrections des bugs 1, 2, et 3) ---
 # -----------------------------------------------------------
 COMMENT_ID = 1000
 COMMENT_QUESTION = "Veuillez préciser pourquoi le nombre de photo partagé ne correspond pas au minimum attendu"
@@ -369,11 +369,12 @@ def validate_section(df_questions, section_name, answers, collected_data):
     missing = []
     section_rows = df_questions[df_questions['section'] == section_name]
     
-    # 1. PRÉ-CALCULS (Nouveau)
+    # 1. PRÉ-CALCULS 
     comment_val = answers.get(COMMENT_ID)
     has_justification = comment_val is not None and str(comment_val).strip() != ""
     
     project_data = st.session_state.get('project_data', {})
+    # CORRECTION BUG 1: Assurer le strip() pour le nom de la section
     expected_total, detail_str = get_expected_photo_count(section_name.strip(), project_data)
     
     current_photo_count = 0
@@ -406,15 +407,17 @@ def validate_section(df_questions, section_name, answers, collected_data):
         
         if is_mandatory:
             
-            # --- CORRECTION BUG 3 (Clé du fix) ---
+            # --- CORRECTION BUG 2 & 3 ---
             # Le champ photo OBLIGATOIRE est ignoré si :
-            # 1. Le total minimum requis est atteint (is_count_sufficient = True)
+            # 1. Le total minimum requis est atteint (is_count_sufficient = True) 
+            #    (Bug 3: Validation du total global)
             # OU
-            # 2. Une justification a été fournie (has_justification = True)
+            # 2. Une justification a été fournie (has_justification = True) 
+            #    (Bug 2: Permettre la validation même avec 0 photo justifiée)
             if q_type == 'photo' and (is_count_sufficient or has_justification):
                 continue
             
-            # ------------------------------------
+            # ---------------------------
             
             # Validation classique pour les autres types de champs et les photos si les conditions ci-dessus ne sont pas remplies
             if isinstance(val, list):
@@ -445,17 +448,17 @@ def validate_section(df_questions, section_name, answers, collected_data):
                     f"{error_message}"
                 )
 
-# 4. Nettoyage du Commentaire
+    # 4. Nettoyage du Commentaire
     # Si le compte est bon, on supprime le commentaire s'il existe (pour ne pas polluer la BDD)
     if not is_photo_count_incorrect and COMMENT_ID in answers:
         del answers[COMMENT_ID]
 
     return len(missing) == 0, missing
 
-# --- LIGNES À AJOUTER OU VÉRIFIER ---
+# IMPORTANT : Alias pour éviter NameError
 validate_phase = validate_section
 validate_identification = validate_section
-# ----
+
 
 # -----------------------------------------------------------
 # --- COMPOSANTS UI (inchangés, sauf le cas du COMMENT_ID dans render_question) ---
@@ -561,7 +564,7 @@ def render_question(row, answers, phase_name, key_suffix, loop_index):
             del answers[q_id]
 
 
-# --- FLUX PRINCIPAL (Partie modifiée) ---
+# --- FLUX PRINCIPAL ---
 
 st.markdown('<div class="main-header"><h1>📝Formulaire Chantier </h1></div>', unsafe_allow_html=True)
 
@@ -642,7 +645,6 @@ elif st.session_state['step'] == 'IDENTIFICATION':
     
     rendering_id = st.session_state['id_rendering_ident']
     
-    # Correction de l'erreur ValueError: utiliser enumerate pour obtenir l'indice de boucle
     for idx, (index, row) in enumerate(identification_questions.iterrows()):
         if check_condition(row, st.session_state['current_phase_temp'], st.session_state['collected_data']):
             # Aucune question ID 1000 ne devrait être rendue ici
@@ -741,16 +743,22 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             available_phases.append(sec)
         
         if not st.session_state['current_phase_name']:
-              # Logique inchangée
+              
               st.markdown("### 📑 Sélection de la phase")
               phase_choice = st.selectbox("Quelle phase ?", [""] + available_phases)
+              
               if phase_choice:
                   st.session_state['current_phase_name'] = phase_choice
+                  # --- CORRECTION BUG AFFICHAGE PERSISTANT ---
+                  # Réinitialiser le drapeau ici pour ne pas afficher le commentaire d'un échec précédent
+                  st.session_state['show_comment_on_error'] = False 
+                  # -------------------------------------------
                   st.rerun()
+                  
               if st.button("⬅️ Retour"):
                   st.session_state['step'] = 'LOOP_DECISION'
                   st.session_state['current_phase_temp'] = {}
-                  st.session_state['show_comment_on_error'] = False # Reset
+                  st.session_state['show_comment_on_error'] = False # S'assurer qu'il est réinitialisé au retour
                   st.rerun()
         else:
             current_phase = st.session_state['current_phase_name']
@@ -766,12 +774,12 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
 
             st.markdown("---")
             
-            # Bouton pour changer de phase (inchangé)
+            # Bouton pour changer de phase
             if st.button("🔄 Changer de phase"):
                 st.session_state['current_phase_name'] = None
                 st.session_state['current_phase_temp'] = {}
                 st.session_state['iteration_id'] = str(uuid.uuid4())
-                st.session_state['show_comment_on_error'] = False # Reset
+                st.session_state['show_comment_on_error'] = False 
                 st.rerun()
             
             st.markdown("---")
@@ -779,7 +787,6 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             section_questions = df[df['section'] == current_phase]
             
             visible_count = 0
-            # Correction de l'erreur ValueError: utiliser enumerate pour obtenir l'indice de boucle
             for idx, (index, row) in enumerate(section_questions.iterrows()):
                 # On ne rend pas le commentaire 1000 ici, il est rendu conditionnellement plus tard
                 if int(row.get('id', 0)) == COMMENT_ID: continue
@@ -796,6 +803,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             # --- RENDU CONDITIONNEL DU COMMENTAIRE (APRÈS ÉCHEC DE VALIDATION) ---
             # ------------------------------------------------------------------
             
+            # Le commentaire s'affiche UNIQUEMENT si le drapeau d'erreur est levé par le bouton Valider
             if st.session_state.get('show_comment_on_error', False):
                 st.markdown("---")
                 st.markdown("### ✍️ Justification de l'Écart")
@@ -825,7 +833,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
                 # Bouton Valider la phase
                 if st.button("💾 Valider la phase"):
                     
-                    # 1. Réinitialiser le drapeau (l'erreur est vérifiée à chaque validation)
+                    # 1. Réinitialiser le drapeau AVANT la validation
                     st.session_state['show_comment_on_error'] = False 
                     
                     # 2. Lancer la validation
@@ -836,7 +844,6 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
                     if is_valid:
                         new_entry = {
                             "phase_name": current_phase,
-                            # La fonction validate_section a déjà nettoyé l'ID 1000 si non requis
                             "answers": st.session_state['current_phase_temp'].copy() 
                         }
                         st.session_state['collected_data'].append(new_entry)
