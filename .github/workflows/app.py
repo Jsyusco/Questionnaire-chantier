@@ -688,14 +688,18 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             with cols1[i]:
                 st.markdown(f"**{renamed_key}** : {value}")
         
-        st.markdown("**Points de charge Standard**")
-        cols2 = st.columns([1, 1, 1])
-        fields_l2 = DISPLAY_GROUPS[1]
-        for i, field_key in enumerate(fields_l2):
-            renamed_key = PROJECT_RENAME_MAP.get(field_key, field_key)
-            value = project_details.get(field_key, 'N/A')
-            with cols2[i]:
-                st.markdown(f"**{renamed_key}** : {value}")
+
+with st.container(border=True):
+    st.markdown("**Points de charge Standard**")
+    cols2 = st.columns([1, 1, 1])
+
+    fields_l2 = DISPLAY_GROUPS[1]
+    for i, field_key in enumerate(fields_l2):
+        renamed_key = PROJECT_RENAME_MAP.get(field_key, field_key)
+        value = project_details.get(field_key, 'N/A')
+        with cols2[i]:
+            st.markdown(f"**{renamed_key}** : {value}")
+
 
         st.markdown("**Points de charge Pré-équipés**")
         cols3 = st.columns([1, 1, 1])
