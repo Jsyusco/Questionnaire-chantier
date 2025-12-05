@@ -29,7 +29,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- NOUVELLE LOGIQUE DE RENOMMAGE ET D'AFFICHAGE DU PROJET (inchangée) ---
+# --- NOUVELLE LOGIQUE DE RENOMMAGE ET D'AFFICHAGE DU PROJET (inchangés) ---
 
 PROJECT_RENAME_MAP = {
     'Intitulé': 'Intitulé',
@@ -359,7 +359,7 @@ def check_condition(row, current_answers, collected_data):
     except Exception: return True
 
 # -----------------------------------------------------------
-# --- FONCTION VALIDATION (MODIFIÉE) ---
+# --- FONCTION VALIDATION (CORRIGÉE) ---
 # -----------------------------------------------------------
 # ID Arbitraire pour le champ de commentaire dynamique
 COMMENT_ID = 1000
@@ -387,7 +387,7 @@ def validate_section(df_questions, section_name, answers, collected_data):
             elif val is None or val == "" or (isinstance(val, (int, float)) and val == 0):
                 missing.append(f"Question {q_id} : {row['question']}")
 
-    # 2. Validation du Nombre de Photos (Nouvelle logique)
+    # 2. Validation du Nombre de Photos (Logique)
     project_data = st.session_state.get('project_data', {})
     expected_total, detail_str = get_expected_photo_count(section_name, project_data)
     
@@ -411,12 +411,12 @@ def validate_section(df_questions, section_name, answers, collected_data):
         if photo_questions_found and current_photo_count != expected_total:
             is_photo_count_incorrect = True
             
-            # Ajouter une alerte (non-bloquante) pour informer l'utilisateur de l'écart
-            # L'erreur de validation (blocage) sera ajoutée si le commentaire est manquant
+            # Correction pour éviter le TypeError (Lignes 416-422 du traceback)
+            # On force la conversion en string pour éviter les erreurs d'interpolation
             st.error(
-                f"⚠️ <b>Écart de Photos pour '{section_name}'</b>. "
-                f"Attendu : <b>{expected_total}</b> (calculé : {detail_str}). "
-                f"Reçu : <b>{current_photo_count}</b>. "
+                f"⚠️ <b>Écart de Photos pour '{str(section_name)}'</b>. "
+                f"Attendu : <b>{str(expected_total)}</b> (calculé : {str(detail_str)}). "
+                f"Reçu : <b>{str(current_photo_count)}</b>. "
                 f"Veuillez remplir le champ de commentaire ci-dessous."
                 , unsafe_allow_html=True
             )
@@ -436,7 +436,6 @@ def validate_section(df_questions, section_name, answers, collected_data):
             pass
     else:
         # Si aucun écart n'est trouvé, s'assurer que le commentaire est retiré des réponses
-        # pour éviter d'enregistrer des champs vides inutiles.
         if COMMENT_ID in answers:
             del answers[COMMENT_ID]
 
@@ -447,7 +446,7 @@ validate_phase = validate_section
 validate_identification = validate_section
 
 # -----------------------------------------------------------
-# --- COMPOSANTS UI (MODIFIÉ) ---
+# --- COMPOSANTS UI (inchangée) ---
 # -----------------------------------------------------------
 
 def render_question(row, answers, phase_name, key_suffix, loop_index):
@@ -547,7 +546,7 @@ def render_question(row, answers, phase_name, key_suffix, loop_index):
     elif current_val is not None and not is_dynamic_comment:
         answers[q_id] = current_val
 
-# --- FLUX PRINCIPAL (Partiellement Modifié pour le rendu du commentaire) ---
+# --- FLUX PRINCIPAL (inchangé) ---
 
 st.markdown('<div class="main-header"><h1>📝Formulaire Chantier </h1></div>', unsafe_allow_html=True)
 
@@ -770,7 +769,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
                     visible_count += 1
             
             # ------------------------------------------------------------------
-            # --- RENDU CONDITIONNEL DU COMMENTAIRE (Ajout) ---
+            # --- RENDU CONDITIONNEL DU COMMENTAIRE (Logique inchangée) ---
             # ------------------------------------------------------------------
             # Effectuer une pré-validation pour voir si le commentaire DOIT être affiché
             
