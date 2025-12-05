@@ -771,6 +771,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             
             if is_photo_rule_active:
                 st.info(f"📸 **Attente Photos :** Il est attendu **{expected}** photos pour cette section (Total des bornes : {details}).")
+            st.divider()
             
             # Bouton pour changer de phase
             if st.button("🔄 Changer de phase"):
