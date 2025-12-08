@@ -366,7 +366,6 @@ def check_condition(row, current_answers, collected_data):
 COMMENT_ID = 100
 COMMENT_QUESTION = "Veuillez préciser pourquoi le nombre de photo partagé ne correspond pas au minimum attendu"
 
-
 def validate_section(df_questions, section_name, answers, collected_data):
     missing = []
     section_rows = df_questions[df_questions['section'] == section_name]
@@ -460,6 +459,30 @@ def validate_section(df_questions, section_name, answers, collected_data):
             
             error_message = (
                 f"⚠️ **Écart de Photos pour '{str(section_name)}'**.\n\n"
+                f"Attendu : **{str(expected_total)}** (calculé : {str(detail_str)}).\n\n"
+                f"Reçu : **{str(current_photo_count)}**.\n\n"
+                f"Veuillez remplir le champ de commentaire."
+            )
+
+            # Si écart constaté ET pas de justification -> Erreur bloquante
+            if not has_justification:
+                missing.append(
+                    f"**Commentaire (ID {COMMENT_ID}) :** {COMMENT_QUESTION} "
+                    f"(requis en raison de l'écart de photo : Attendu {expected_total}, Reçu {current_photo_count}).\n\n"
+                    f"{error_message}"
+                )
+
+    # 4. Nettoyage du Commentaire
+    # Si le compte est bon, on supprime le commentaire s'il existe (pour ne pas polluer la BDD)
+    if not is_photo_count_incorrect and COMMENT_ID in answers:
+        del answers[COMMENT_ID]
+
+    return len(missing) == 0, missing
+
+# IMPORTANT : Alias pour éviter NameError
+validate_phase = validate_section
+validate_identification = validate_section
+
 
 
 
