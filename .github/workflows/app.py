@@ -800,11 +800,11 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             
             # --- AFFICHAGE DE L'ATTENTE PHOTO ---
             # Utiliser .strip() ici aussi pour l'affichage, par cohérence
-            expected, details = get_expected_photo_count(current_phase.strip(), st.session_state['project_data'])
+            expected, details = expected_total * photo_question_count
             is_photo_rule_active = expected is not None and expected > 0
             
             if is_photo_rule_active:
-                st.info(f"📸 **Photos :** Il est attendu **{expected_total}** photos pour cette section (Total des bornes : {details}).")
+                st.info(f"📸 **Photos :** Il est attendu **{expected}** photos pour cette section (Total des bornes : {details}).")
             st.divider()
             
             # Bouton pour changer de phase
