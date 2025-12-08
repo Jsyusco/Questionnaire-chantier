@@ -361,7 +361,7 @@ def check_condition(row, current_answers, collected_data):
     except Exception: return True
 
 # -----------------------------------------------------------
-# --- FONCTION VALIDATION (Inclut les corrections des bugs 1, 2, et 3) ---
+# --- FONCTION VALIDATION ---
 # -----------------------------------------------------------
 COMMENT_ID = 100
 COMMENT_QUESTION = "Veuillez préciser pourquoi le nombre de photo partagé ne correspond pas au minimum attendu"
@@ -376,24 +376,48 @@ def validate_section(df_questions, section_name, answers, collected_data):
     
     project_data = st.session_state.get('project_data', {})
     # CORRECTION BUG 1: Assurer le strip() pour le nom de la section
-    expected_total, detail_str = get_expected_photo_count(section_name.strip(), project_data)
-    
-    current_photo_count = 0
-    photo_questions_found = False
-    
-    # Calculer le nombre actuel de photos (pour toute la section)
-    for _, row in section_rows.iterrows():
-        if str(row['type']).strip().lower() == 'photo':
-            photo_questions_found = True
-            q_id = int(row['id'])
-            val = answers.get(q_id)
-            if isinstance(val, list):
-                current_photo_count += len(val)
 
-    # Déterminer si la vérification de quantité est suffisante (ou non applicable)
-    is_count_sufficient = expected_total is None or expected_total == 0 or (
-        expected_total > 0 and current_photo_count >= expected_total
+# 1) Récupère le total "base" et le détail
+expected_total, detail_str = get_expected_photo_count(section_name.strip(), project_data)
+
+# 2) Calcule le nombre de questions où une photo est attendue (dans la section)
+#    Hypothèse: section_rows contient les questions de la section avec une colonne 'type'
+photo_question_count = sum(
+    1
+    for _, row in section_rows.iterrows()
+    if str(row.get('type', '')).strip().lower() == 'photo'
+)
+
+# 3) Ajuste le total attendu: total_calculé * nombre_de_questions_photo
+#    Si tu veux éviter que le total devienne 0 quand il n'y a aucune question photo,
+#    remplace `photo_question_count` par `max(1, photo_question_count)`.
+if expected_total is not None and expected_total > 0:
+    expected_total = expected_total * photo_question_count
+    # Enrichit le détail pour transparence
+    detail_str = (
+        f"{detail_str} | Multiplieur questions photo: {photo_question_count} "
+        f"-> Total ajusté: {expected_total}"
     )
+
+current_photo_count = 0
+photo_questions_found = False
+
+# 4) Calculer le nombre actuel de photos (pour toute la section)
+for _, row in section_rows.iterrows():
+    if str(row['type']).strip().lower() == 'photo':
+        photo_questions_found = True
+        q_id = int(row['id'])
+        val = answers.get(q_id)
+        if isinstance(val, list):
+            current_photo_count += len(val)
+
+# 5) Déterminer si la vérification de quantité est suffisante (ou non applicable)
+is_count_sufficient = (
+    expected_total is None
+    or expected_total == 0
+    or (expected_total > 0 and current_photo_count >= expected_total)
+)
+
     
     # 2. VALIDATION DES CHAMPS OBLIGATOIRES
     for _, row in section_rows.iterrows():
