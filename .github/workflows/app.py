@@ -807,14 +807,6 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             current_phase = st.session_state['current_phase_name']
             st.markdown(f"### 📝 {current_phase}")
             
-            # --- AFFICHAGE DE L'ATTENTE PHOTO ---
-                       
-            expected, details = get_expected_photo_count(current_phase.strip(), st.session_state['project_data'])
-            is_photo_rule_active = expected is not None and expected > 0
-            
-            if is_photo_rule_active:
-                st.info(f"📸 **Photos :** Il est attendu **{expected}** photos pour cette section (Total des bornes : {details}).")
-            st.divider()
             
             # Bouton pour changer de phase
             if st.button("🔄 Changer de phase"):
