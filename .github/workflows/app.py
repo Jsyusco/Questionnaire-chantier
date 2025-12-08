@@ -125,58 +125,69 @@ db = initialize_firebase()
 # ---------------------------------------------------------
 # --- NOUVELLES FONCTIONS GOOGLE DRIVE (AJOUTÉES) ---
 # ---------------------------------------------------------
+ 
+@st.cache_resource(show_spinner=False)
+def init_google_drive():
+    """Initialise l'objet Google Drive à partir des secrets Streamlit."""
+    global GOOGLE_DRIVE_INITIALIZED
+    
+    if "google_drive" not in st.secrets:
+        st.warning("⚠️ Secret 'google_drive' non trouvé. La sauvegarde Drive est désactivée.")
+        return None, None
 
-def get_drive_service():
-    """Initialise et retourne le service Google Drive."""
     try:
-        # On suppose que le JSON complet est dans st.secrets["google_drive"]["service_account_json"]
-        service_account_info = json.loads(st.secrets["google_drive"]["service_account_json"])
+        json_key_info_str = st.secrets["google_drive"]["service_account_json"]
         
+        # ÉTAPE DE NETTOYAGE (Intervention Python pour la robustesse)
+        cleaned_json_key_info_str = clean_json_string(json_key_info_str)
+        
+        # Tentative de chargement du JSON
+        json_key_info = json.loads(cleaned_json_key_info_str) 
+        
+        # Vérification de l'intégrité de la clé (pour l'erreur ASN.1/short data)
+        private_key = json_key_info.get("private_key", "")
+        # Une clé typique est plus longue que 500 caractères (Base64 encodée)
+        if len(private_key) < 500: 
+            st.warning("⚠️ La clé privée semble très courte. Ceci peut causer l'erreur 'ASN.1 parsing error: short data'.")
+        
+        # Initialisation réelle de Google Drive
         creds = service_account.Credentials.from_service_account_info(
-            service_account_info,
+            json_key_info,
             scopes=['https://www.googleapis.com/auth/drive']
         )
-        return build('drive', 'v3', credentials=creds)
-    except Exception as e:
-        st.error(f"Erreur d'initialisation Google Drive : {e}")
-        return None
+        
+        http_auth = AuthorizedSession(creds)
+        drive = GoogleDrive(http_auth)
+        
+        folder_id = st.secrets["google_drive"]["target_folder_id"]
+        
+        GOOGLE_DRIVE_INITIALIZED = True
+        return drive, folder_id
 
-def upload_file_to_drive(file_obj, project_name, phase_name, drive_service):
-    """Uploade un fichier vers Drive et retourne son lien."""
-    try:
-        DRIVE_FOLDER_ID = st.secrets["google_drive"]["target_folder_id"]
-        
-        # Nettoyage du nom pour éviter les caractères spéciaux
-        sanitized_project = str(project_name).replace(' | ', '_').replace(' ', '_').replace('/', '_')
-        sanitized_phase = str(phase_name).replace(' ', '_').replace('/', '_')
-        file_name = f"{sanitized_project}_{sanitized_phase}_{file_obj.name}"
-        
-        file_metadata = {
-            'name': file_name,
-            'parents': [DRIVE_FOLDER_ID]
-        }
-        
-        # Important : Rembobiner le fichier avant lecture
-        file_obj.seek(0)
-        
-        media = MediaIoBaseUpload(io.BytesIO(file_obj.read()),
-                                  mimetype=file_obj.type,
-                                  resumable=True)
-        
-        uploaded_file = drive_service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id, webViewLink'
-        ).execute()
-        
-        # Rembobiner à nouveau pour d'autres usages éventuels (zip, etc.)
-        file_obj.seek(0)
-        
-        return uploaded_file.get('webViewLink')
     except Exception as e:
-        st.error(f"Erreur upload Drive pour {file_obj.name}: {e}")
-        return None
+        # Affichage d'une erreur plus précise pour aider l'utilisateur
+        error_message = str(e)
+        if "Invalid control character" in error_message:
+            st.error("❌ Erreur d'initialisation Google Drive : Problème de formatage JSON.")
+            st.caption("Solution: Assurez-vous que les sauts de ligne (\\n) dans la 'private_key' du secret sont correctement échappés. Tentez avec un seul antislash '\\n' si vous utilisez des triples guillemets doubles dans secrets.toml.")
+        elif "ASN.1 parsing error: short data" in error_message:
+            st.error("❌ Erreur d'initialisation Google Drive : Clé privée tronquée.")
+            st.caption("Solution: La clé privée est incomplète. Copiez la clé complète et assurez-vous qu'elle est sur une seule ligne avec tous les sauts de ligne remplacés par '\\n'.")
+        else:
+            st.error(f"❌ Erreur d'initialisation Google Drive : {e}")
+            st.caption("Impossible d'initialiser Google Drive. Sauvegarde annulée.")
+        return None, None
 
+def save_to_google_drive(drive, folder_id, df_bytes, zip_buffer):
+    """Sauvegarde le fichier CSV et le fichier ZIP (photos) dans Google Drive."""
+    
+    if not drive or not folder_id:
+        st.error("Google Drive non initialisé. Sauvegarde impossible.")
+        return False
+
+    project_name = st.session_state['project_data'].get('Intitulé', 'Projet_Sans_Nom')
+    date_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+       
 
 # --- FONCTIONS DE CHARGEMENT ET SAUVEGARDE FIREBASE (MODIFIÉE POUR DRIVE) ---
 
