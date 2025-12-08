@@ -799,41 +799,39 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             st.markdown(f"### 📝 {current_phase}")
             
             # --- AFFICHAGE DE L'ATTENTE PHOTO ---
-            # Utiliser .strip() ici aussi pour l'affichage, par cohérence
+            
+            # Récupérer le total "base" et le détail
+            expected, details = get_expected_photo_count(current_phase.strip(), st.session_state['project_data'])
+            
+            # Compter le nombre de questions de type "photo" pour la phase/section courante
+            section_rows = df_questions[df_questions['section'] == current_phase]
+            photo_question_count = sum(
+                1
+                for _, row in section_rows.iterrows()
+                if str(row.get('type', '')).strip().lower() == 'photo'
+            )
+            
+            # Ajuster le total attendu (multiplication par le nombre de questions "photo")
+            if expected is not None and expected > 0:
+                adjusted_expected = expected * photo_question_count
+                # Enrichir les détails pour la traçabilité
+                details = (
+                    f"{details} | Multiplieur questions photo: {photo_question_count} "
+                    f"-> Total ajusté: {adjusted_expected}"
+                )
+            else:
+                adjusted_expected = expected  # None ou 0 restent tels quels
+            
+            # Activer la règle uniquement si un total strictement positif est attendu après ajustement
+            is_photo_rule_active = adjusted_expected is not None and adjusted_expected > 0
+            
+            if is_photo_rule_active:
+                st.info(
+                    f"📸 **Photos :** Il est attendu **{adjusted_expected}** photos pour cette section "
+                    f"(Total des bornes : {details})."
+                )
 
-# Récupérer le total "base" et le détail
-expected, details = get_expected_photo_count(current_phase.strip(), st.session_state['project_data'])
-
-# Compter le nombre de questions de type "photo" pour la phase/section courante
-section_rows = df_questions[df_questions['section'] == current_phase]
-photo_question_count = sum(
-    1
-    for _, row in section_rows.iterrows()
-    if str(row.get('type', '')).strip().lower() == 'photo'
-)
-
-# Ajuster le total attendu (multiplication par le nombre de questions "photo")
-if expected is not None and expected > 0:
-    adjusted_expected = expected * photo_question_count
-    # Enrichir les détails pour la traçabilité
-    details = (
-        f"{details} | Multiplieur questions photo: {photo_question_count} "
-        f"-> Total ajusté: {adjusted_expected}"
-    )
-else:
-    adjusted_expected = expected  # None ou 0 restent tels quels
-
-# Activer la règle uniquement si un total strictement positif est attendu après ajustement
-is_photo_rule_active = adjusted_expected is not None and adjusted_expected > 0
-
-if is_photo_rule_active:
-    st.info(
-        f"📸 **Photos :** Il est attendu **{adjusted_expected}** photos pour cette section "
-        f"(Total des bornes : {details})."
-    )
-
-st.divider()
-
+            st.divider()
             
             # Bouton pour changer de phase
             if st.button("🔄 Changer de phase"):
