@@ -366,6 +366,7 @@ def check_condition(row, current_answers, collected_data):
 COMMENT_ID = 100
 COMMENT_QUESTION = "Veuillez préciser pourquoi le nombre de photo partagé ne correspond pas au minimum attendu"
 
+
 def validate_section(df_questions, section_name, answers, collected_data):
     missing = []
     section_rows = df_questions[df_questions['section'] == section_name]
@@ -375,9 +376,28 @@ def validate_section(df_questions, section_name, answers, collected_data):
     has_justification = comment_val is not None and str(comment_val).strip() != ""
     
     project_data = st.session_state.get('project_data', {})
+    
     # CORRECTION BUG 1: Assurer le strip() pour le nom de la section
     expected_total, detail_str = get_expected_photo_count(section_name.strip(), project_data)
     
+    # AJOUT: Calculer le nombre de questions où une photo est attendue (dans la section)
+    # Hypothèse: une question "photo" est identifiée par row['type'] == 'photo'
+    photo_question_count = sum(
+        1
+        for _, row in section_rows.iterrows()
+        if str(row.get('type', '')).strip().lower() == 'photo'
+    )
+    
+    # AJOUT: Ajuster le total attendu (multiplication par le nombre de questions photo)
+    # Si tu ne veux pas que le total devienne 0 lorsqu'il n'y a aucune question photo,
+    # remplace `photo_question_count` par `max(1, photo_question_count)`.
+    if expected_total is not None and expected_total > 0:
+        expected_total = expected_total * photo_question_count
+        detail_str = (
+            f"{detail_str} | Multiplieur questions photo: {photo_question_count} "
+            f"-> Total ajusté: {expected_total}"
+        )
+
     current_photo_count = 0
     photo_questions_found = False
     
@@ -391,17 +411,20 @@ def validate_section(df_questions, section_name, answers, collected_data):
                 current_photo_count += len(val)
 
     # Déterminer si la vérification de quantité est suffisante (ou non applicable)
-    is_count_sufficient = expected_total is None or expected_total == 0 or (
-        expected_total > 0 and current_photo_count >= expected_total
+    is_count_sufficient = (
+        expected_total is None
+        or expected_total == 0
+        or (expected_total > 0 and current_photo_count >= expected_total)
     )
-    
-
     
     # 2. VALIDATION DES CHAMPS OBLIGATOIRES
     for _, row in section_rows.iterrows():
-        if int(row['id']) == COMMENT_ID: continue
+        if int(row['id']) == COMMENT_ID:
+            continue
 
-        if not check_condition(row, answers, collected_data): continue
+        if not check_condition(row, answers, collected_data):
+            continue
+        
         is_mandatory = str(row['obligatoire']).strip().lower() == 'oui'
         
         q_id = int(row['id'])
@@ -409,7 +432,6 @@ def validate_section(df_questions, section_name, answers, collected_data):
         val = answers.get(q_id)
         
         if is_mandatory:
-            
             # --- CORRECTION BUG 2 & 3 ---
             # Le champ photo OBLIGATOIRE est ignoré si :
             # 1. Le total minimum requis est atteint (is_count_sufficient = True) 
@@ -438,29 +460,7 @@ def validate_section(df_questions, section_name, answers, collected_data):
             
             error_message = (
                 f"⚠️ **Écart de Photos pour '{str(section_name)}'**.\n\n"
-                f"Attendu : **{str(expected_total)}** (calculé : {str(detail_str)}).\n\n"
-                f"Reçu : **{str(current_photo_count)}**.\n\n"
-                f"Veuillez remplir le champ de commentaire."
-            )
 
-            # Si écart constaté ET pas de justification -> Erreur bloquante
-            if not has_justification:
-                missing.append(
-                    f"**Commentaire (ID {COMMENT_ID}) :** {COMMENT_QUESTION} "
-                    f"(requis en raison de l'écart de photo : Attendu {expected_total}, Reçu {current_photo_count}).\n\n"
-                    f"{error_message}"
-                )
-
-    # 4. Nettoyage du Commentaire
-    # Si le compte est bon, on supprime le commentaire s'il existe (pour ne pas polluer la BDD)
-    if not is_photo_count_incorrect and COMMENT_ID in answers:
-        del answers[COMMENT_ID]
-
-    return len(missing) == 0, missing
-
-# IMPORTANT : Alias pour éviter NameError
-validate_phase = validate_section
-validate_identification = validate_section
 
 
 # -----------------------------------------------------------
