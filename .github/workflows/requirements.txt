@@ -1,9 +1,8 @@
 streamlit
-folium
 pandas
+firebase-admin
 numpy
-datetime
-streamlit_folium
-openpyxl
-firebase_admin
-datetime
+# Dépendances pour Google Drive
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
