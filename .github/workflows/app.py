@@ -799,53 +799,50 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             st.markdown(f"### 📝 {current_phase}")
             
             # --- AFFICHAGE DE L'ATTENTE PHOTO ---
-            
-            # Récupérer le total "base" et le détail
-            expected, details = get_expected_photo_count(current_phase.strip(), st.session_state['project_data'])
-            
-# 1) Récupérer le total "base" et les détails
-expected, details = get_expected_photo_count(current_phase.strip(), st.session_state.get('project_data', {}))
-
-# 2) Tenter de récupérer df_questions depuis le session_state
-df_questions = st.session_state.get('df_questions', None)
-
-photo_question_count = 0  # multiplicateur par défaut
-if df_questions is not None:
-    # Vérifier que la colonne 'section' existe
-    if 'section' in df_questions.columns and 'type' in df_questions.columns:
-        # Filtre robuste avec strip()
-        section_mask = df_questions['section'].astype(str).str.strip() == current_phase.strip()
-        section_rows = df_questions[section_mask]
-
-        # Compter les questions de type "photo" dans la phase/section courante
-        photo_question_count = sum(
-            1
-            for _, row in section_rows.iterrows()
-            if str(row.get('type', '')).strip().lower() == 'photo'
-        )
-    else:
-        st.warning("Le DataFrame `df_questions` ne contient pas les colonnes attendues ('section', 'type').")
-else:
-    st.warning("`df_questions` introuvable (non présent dans `st.session_state`). Le multiplicateur sera 0.")
-
-# 3) Ajuster le total attendu (multiplication par le nombre de questions 'photo')
-if expected is not None and expected > 0:
-    adjusted_expected = expected * photo_question_count
-    details = (
-        f"{details} | Multiplieur questions photo: {photo_question_count} "
-        f"-> Total ajusté: {adjusted_expected}"
-    )
-else:
-    adjusted_expected = expected  # None ou 0 restent tels quels
-
-# 4) Activer l’affichage si le total ajusté est strictement positif
-is_photo_rule_active = adjusted_expected is not None and adjusted_expected > 0
-
-if is_photo_rule_active:
-    st.info(
-        f"📸 **Photos :** Il est attendu **{adjusted_expected}** photos pour cette section "
-        f"(Total des bornes : {details})."
-    )
+                       
+                # 1) Récupérer le total "base" et les détails
+                expected, details = get_expected_photo_count(current_phase.strip(), st.session_state.get('project_data', {}))
+                
+                # 2) Tenter de récupérer df_questions depuis le session_state
+                df_questions = st.session_state.get('df_questions', None)
+                
+                photo_question_count = 0  # multiplicateur par défaut
+                if df_questions is not None:
+                    # Vérifier que la colonne 'section' existe
+                    if 'section' in df_questions.columns and 'type' in df_questions.columns:
+                        # Filtre robuste avec strip()
+                        section_mask = df_questions['section'].astype(str).str.strip() == current_phase.strip()
+                        section_rows = df_questions[section_mask]
+                
+                        # Compter les questions de type "photo" dans la phase/section courante
+                        photo_question_count = sum(
+                            1
+                            for _, row in section_rows.iterrows()
+                            if str(row.get('type', '')).strip().lower() == 'photo'
+                        )
+                    else:
+                        st.warning("Le DataFrame `df_questions` ne contient pas les colonnes attendues ('section', 'type').")
+                else:
+                    st.warning("`df_questions` introuvable (non présent dans `st.session_state`). Le multiplicateur sera 0.")
+                
+                # 3) Ajuster le total attendu (multiplication par le nombre de questions 'photo')
+                if expected is not None and expected > 0:
+                    adjusted_expected = expected * photo_question_count
+                    details = (
+                        f"{details} | Multiplieur questions photo: {photo_question_count} "
+                        f"-> Total ajusté: {adjusted_expected}"
+                    )
+                else:
+                    adjusted_expected = expected  # None ou 0 restent tels quels
+                
+                # 4) Activer l’affichage si le total ajusté est strictement positif
+                is_photo_rule_active = adjusted_expected is not None and adjusted_expected > 0
+                
+                if is_photo_rule_active:
+                    st.info(
+                        f"📸 **Photos :** Il est attendu **{adjusted_expected}** photos pour cette section "
+                        f"(Total des bornes : {details})."
+                    )
 
 
 
