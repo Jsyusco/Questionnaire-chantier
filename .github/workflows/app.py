@@ -59,6 +59,7 @@ DISPLAY_GROUPS = [
 # Dictionnaire : "Nom de la Section" : ["Colonne1 à additionner", "Colonne2 à additionner", ...]
 SECTION_PHOTO_RULES = {
     "Bornes DC": ['R [Plan de Déploiement]', 'UR [Plan de Déploiement]'],
+    "Bornes AC": ['L [Plan de Déploiement]'],
     # Ajoutez d'autres sections ici si nécessaire.
 }
 
