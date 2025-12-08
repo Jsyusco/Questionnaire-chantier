@@ -251,8 +251,8 @@ def create_csv_export(collected_data, df_struct):
         phase_name = item['phase_name']
         for q_id, val in item['answers'].items():
             
-            # Utilise une version temporaire de df_struct si l'ID est 1000 (le commentaire dynamique)
-            if int(q_id) == 1000:
+            # Utilise une version temporaire de df_struct si l'ID est 100 (le commentaire dynamique)
+            if int(q_id) == 100:
                 q_text = "Commentaire Écart Photo"
                 q_row = pd.Series({'question': q_text})
             else:
