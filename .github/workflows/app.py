@@ -711,8 +711,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
                 if st.button("🏁 Terminer l'audit"):
                     st.session_state['step'] = 'FINISHED'
                     st.rerun()
-                      
-            st.markdown('</div>', unsafe_allow_html=True)
+           st.markdown('</div>', unsafe_allow_html=True)
 
 
     elif st.session_state['step'] == 'FILL_PHASE':
