@@ -529,7 +529,7 @@ def render_question(row, answers, phase_name, key_suffix, loop_index):
     val = current_val
 
     st.markdown(f'<div class="question-card"><div>{label_html}</div>', unsafe_allow_html=True)
-    if q_desc: st.markdown(f'<div class="description">📝{q_desc}</div>', unsafe_allow_html=True)
+    if q_desc: st.markdown(f'<div class="description">⚠️ {q_desc}</div>', unsafe_allow_html=True)
 
     if q_type == 'text':
         if is_dynamic_comment:
