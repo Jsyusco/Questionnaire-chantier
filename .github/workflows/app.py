@@ -26,7 +26,7 @@ st.markdown("""
     .phase-block { background-color: #1e1e1e; padding: 25px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #333; }
     .question-card { background-color: transparent; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 3px solid #E9630C; }
     h1, h2, h3 { color: #ffffff !important; }
-    .description { font-size: 0.9em; color: #aaaaaa; font-style: italic; margin-bottom: 10px; }
+    .description { font-size: 0.9em; color: #aaaaaa; margin-bottom: 10px; }
     .mandatory { color: #F4B400; font-weight: bold; margin-left: 5px; }
     .success-box { background-color: #1e4620; padding: 15px; border-radius: 8px; border-left: 5px solid #4caf50; color: #fff; margin: 10px 0; }
     .error-box { background-color: #3d1f1f; padding: 15px; border-radius: 8px; border-left: 5px solid #ff6b6b; color: #ffdad9; margin: 10px 0; }
