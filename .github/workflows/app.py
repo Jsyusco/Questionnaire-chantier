@@ -695,24 +695,22 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
         for idx, item in enumerate(st.session_state['collected_data']):
             st.write(f"• **{item['phase_name']}** : {len(item['answers'])} réponses")
 
-
-        if st.session_state['step'] == 'LOOP_DECISION':
-            st.markdown("### 🔄 Gestion des Phases")
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("➕ Ajouter une phase"):
-                    st.session_state['step'] = 'FILL_PHASE'
-                    st.session_state['current_phase_temp'] = {}
-                    st.session_state['current_phase_name'] = None
-                    st.session_state['iteration_id'] = str(uuid.uuid4())
-                    st.session_state['show_comment_on_error'] = False
-                    st.rerun()
-            with col2:
-                if st.button("🏁 Terminer l'audit"):
-                    st.session_state['step'] = 'FINISHED'
-                    st.rerun()
-           st.markdown('</div>', unsafe_allow_html=True)
-
+    if st.session_state['step'] == 'LOOP_DECISION':
+        st.markdown("### 🔄 Gestion des Phases")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("➕ Ajouter une phase"):
+                st.session_state['step'] = 'FILL_PHASE'
+                st.session_state['current_phase_temp'] = {}
+                st.session_state['current_phase_name'] = None
+                st.session_state['iteration_id'] = str(uuid.uuid4())
+                st.session_state['show_comment_on_error'] = False
+                st.rerun()
+        with col2:
+            if st.button("🏁 Terminer l'audit"):
+                st.session_state['step'] = 'FINISHED'
+                st.rerun()
+       st.markdown('</div>', unsafe_allow_html=True)
 
     elif st.session_state['step'] == 'FILL_PHASE':
         df = st.session_state['df_struct']
