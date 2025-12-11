@@ -754,31 +754,45 @@ elif st.session_state['step'] == 'FINISHED':
     st.markdown("---")
     
     if st.session_state['data_saved']:
-        # Préparation des données pour le téléchargement et l'e-mail
-        csv_data = create_csv_export(st.session_state['collected_data'], st.session_state['df_struct'])
-        zip_buffer = create_zip_export(st.session_state['collected_data'])
-        date_str = datetime.now().strftime('%Y%m%d_%H%M')
-        
-        # --- 2. TÉLÉCHARGEMENT DIRECT ---
-        st.markdown("### 📥 1. Télécharger les pièces jointes")
-        st.warning("Veuillez télécharger ces deux fichiers pour pouvoir les joindre manuellement à l'e-mail.")
-        
-        col_csv, col_zip = st.columns(2)
-        
-        file_name_csv = f"Export_{project_name}_{date_str}.csv"
-        with col_csv:
-            st.download_button(label="📄 Télécharger CSV", data=csv_data, file_name=file_name_csv, mime='text/csv')
-
-        if zip_buffer:
-            file_name_zip = f"Photos_{project_name}_{date_str}.zip"
-            with col_zip:
-                # Assurez-vous que le buffer est bien à 0 avant de télécharger
-                zip_buffer.seek(0) 
-                st.download_button(label="📸 Télécharger ZIP Photos", data=zip_buffer.getvalue(), file_name=file_name_zip, mime='application/zip')
+            # Préparation des données pour le téléchargement et l'e-mail
+            csv_data = create_csv_export(st.session_state['collected_data'], st.session_state['df_struct'])
+            zip_buffer = create_zip_export(st.session_state['collected_data'])
+            
+            # --- AJOUT WORD: Génération du buffer ---
+            word_buffer = create_word_export(st.session_state['collected_data'], st.session_state['df_struct'], st.session_state['project_data'])
+            
+            date_str = datetime.now().strftime('%Y%m%d_%H%M')
+            
+            # --- 2. TÉLÉCHARGEMENT DIRECT (MODIFIÉ AVEC WORD) ---
+            st.markdown("### 📥 1. Télécharger les pièces jointes")
+            st.warning("Veuillez télécharger ces fichiers pour pouvoir les joindre manuellement à l'e-mail.")
+            
+            # Colonnes ajustées pour inclure Word
+            col_word, col_csv, col_zip = st.columns(3)
+            
+            file_name_word = f"Rapport_{project_name}_{date_str}.docx"
+            with col_word:
+                st.download_button(
+                    label="📘 Rapport Word",
+                    data=word_buffer,
+                    file_name=file_name_word,
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
     
-        # --- 3. OUVERTURE DE L'APPLICATION NATIVE (MAILTO) ---
-        st.markdown("---")
-        st.markdown("### 📧 2. Partager par Email")
+            file_name_csv = f"Export_{project_name}_{date_str}.csv"
+            with col_csv:
+                st.download_button(label="📄 Télécharger CSV", data=csv_data, file_name=file_name_csv, mime='text/csv')
+    
+            if zip_buffer:
+                file_name_zip = f"Photos_{project_name}_{date_str}.zip"
+                with col_zip:
+                    # Assurez-vous que le buffer est bien à 0 avant de télécharger
+                    zip_buffer.seek(0) 
+                    st.download_button(label="📸 Télécharger ZIP Photos", data=zip_buffer.getvalue(), file_name=file_name_zip, mime='application/zip')
+        
+            # --- 3. OUVERTURE DE L'APPLICATION NATIVE (MAILTO) ---
+            st.markdown("---")
+            st.markdown("### 📧 2. Partager par Email")
         
         # Construction du mailto:
         subject = f"Rapport Audit : {project_name}"
