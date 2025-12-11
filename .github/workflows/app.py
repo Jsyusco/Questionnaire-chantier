@@ -325,82 +325,86 @@ def create_zip_export(collected_data):
 # --- NOUVELLE FONCTION: EXPORT WORD ---
 def create_word_export(collected_data, df_struct, project_data):
     """
-    Génère un fichier Word (.docx) contenant les réponses et les images intégrées.
+    Crée un fichier DOCX incluant le texte et les images à partir des bytes.
     """
     doc = Document()
-    
-    # Titre du document
     project_name = project_data.get('Intitulé', 'Projet Inconnu')
-    title = doc.add_heading(f"Rapport de Chantier : {project_name}", 0)
+    title = doc.add_heading(f"Rapport d'Audit de Chantier : {project_name}", 0)
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
     
-    # Métadonnées
     doc.add_paragraph(f"Date de génération : {datetime.now().strftime('%d/%m/%Y %H:%M')}")
     doc.add_paragraph(f"ID Submission : {st.session_state.get('submission_id', 'N/A')}")
     doc.add_paragraph("---")
 
+    # Ajouter les données d'identification...
+    # ... (code d'identification omis pour la concision) ...
+    doc.add_heading("Informations d'Identification", level=1)
+    
+    id_answers = collected_data[0]['answers'] if collected_data and collected_data[0]['phase_name'] == ID_SECTION_NAME else {}
+    for key, value in project_data.items():
+        doc.add_paragraph(f"**{key}** : {str(value)}")
+    
+    doc.add_paragraph("---")
+
+
+    # Parcourir toutes les phases (sauf l'identification qui est déjà traitée)
     for phase in collected_data:
         phase_name = phase['phase_name']
-        
-        # Titre de la phase (Section)
+        if phase_name == ID_SECTION_NAME:
+            continue
+
         doc.add_heading(phase_name, level=1)
-        
         answers = phase['answers']
         
         for q_id, val in answers.items():
-            # Récupération du texte de la question
+            
+            # --- Vérification si c'est une QUESTION PHOTO (Liste de dicts avec 'content') ---
+            is_image_data = isinstance(val, list) and val and isinstance(val[0], dict) and 'content' in val[0] and 'type' in val[0]
+            
+            # Cherche le texte de la question
             if int(q_id) == 100:
                 q_text = "Commentaire sur l'écart de photos"
             else:
                 q_row = df_struct[df_struct['id'] == int(q_id)]
-                if not q_row.empty:
-                    q_text = q_row.iloc[0]['question']
-                else:
-                    q_text = f"Question ID {q_id}"
+                q_text = q_row.iloc[0]['question'] if not q_row.empty else f"Question ID {q_id}"
 
-            # Affichage de la question
+            # Afficher le titre de la question
             p_q = doc.add_paragraph()
             run_q = p_q.add_run(f"Q{q_id}. {q_text}")
             run_q.bold = True
             
-            # Affichage de la réponse
-            if isinstance(val, list) and val and hasattr(val[0], 'read'):
-                # C'est une liste de photos
+            if is_image_data:
+                # --- GESTION DES PHOTOS (avec bytes) ---
                 doc.add_paragraph("Photos jointes :")
                 
-                for img_file in val:
-                    try:
-                        # IMPORTANT : Rembobiner le fichier avant lecture pour le docx
-                        img_file.seek(0)
-                        
-                        # Ajout de l'image (largeur fixée à ~14cm pour tenir dans la page)
-                        doc.add_picture(img_file, width=Inches(5.5))
-                        
-                        # Légende image (Nom du fichier)
-                        original_name = img_file.name
-                        lbl = doc.add_paragraph(f"Image: {original_name}")
-                        lbl.style = "Caption"
-                        
-                        # Rembobiner après usage pour d'autres exports éventuels
-                        img_file.seek(0)
-                        
-                    except Exception as e:
-                        doc.add_paragraph(f"[Erreur lors de l'intégration de l'image : {e}]", style="Intense Quote")
+                for img_data in val:
+                    # Double-vérification que ce sont bien des images
+                    if img_data['content'] and img_data['type'].startswith('image/'):
+                        try:
+                            # CRUCIAL : Création d'un flux binaire à partir des bytes stockés 
+                            # C'est ce flux que python-docx attend pour insérer l'image.
+                            image_stream = io.BytesIO(img_data['content'])
+                            
+                            # Ajout de l'image au document
+                            doc.add_picture(image_stream, width=Inches(5.5))
+                            
+                            lbl = doc.add_paragraph(f"Nom du fichier: {img_data['name']}")
+                            lbl.style = "Caption"
+                        except Exception as e:
+                            # En cas d'échec de l'insertion d'une image
+                            doc.add_paragraph(f"[Erreur lors de l'insertion de l'image {img_data.get('name', '')} : {e}]", style="Intense Quote")
+                    else:
+                        doc.add_paragraph(f"[Fichier non image: {img_data.get('name', 'N/A')}, Type: {img_data.get('type', 'N/A')}]")
             
-            elif hasattr(val, 'read'):
-                # Fichier unique
-                doc.add_paragraph(f"[Fichier joint : {val.name}]")
             else:
-                # Texte ou Nombre
+                # --- GESTION DES RÉPONSES TEXTUELLES/NUMÉRIQUES ---
                 if val is None or str(val) == "":
                     doc.add_paragraph("Non renseigné", style="No Spacing")
                 else:
                     doc.add_paragraph(str(val), style="No Spacing")
-            
-            # Petit espace après chaque question
-            doc.add_paragraph("") 
+                    
+            doc.add_paragraph("") # Séparateur entre questions
 
-    # Sauvegarde dans un buffer mémoire
     docx_buffer = io.BytesIO()
     doc.save(docx_buffer)
     docx_buffer.seek(0)
