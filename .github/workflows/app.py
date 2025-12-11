@@ -8,7 +8,13 @@ from datetime import datetime
 import numpy as np
 import zipfile
 import io
-import urllib.parse # Ajout pour l'encodage du lien mailto
+import urllib.parse
+# --- Imports SMTP restaurés ---
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.application import MIMEApplication
+from email import encoders
 
 # --- CONFIGURATION ET STYLE (inchangés) ---
 st.set_page_config(page_title="Formulaire Dynamique - Firestore", layout="centered")
@@ -73,7 +79,6 @@ def get_expected_photo_count(section_name, project_data):
             if pd.isna(val) or val == "":
                 num = 0
             else:
-                # Utiliser float() d'abord pour gérer les strings '1.0' ou '1,0'
                 num = int(float(str(val).replace(',', '.'))) 
         except Exception:
             num = 0
@@ -277,7 +282,6 @@ def create_zip_export(collected_data):
                             file_obj.seek(0) 
                             file_content = file_obj.read()
                             # Nom unique dans le ZIP : Phase_QID_Index_NomOriginal
-                            # On nettoie le nom de fichier pour éviter les problèmes de chemin
                             original_name = file_obj.name.split('/')[-1].split('\\')[-1]
                             filename = f"{phase_name_clean}_Q{q_id}_{idx+1}_{original_name}"
                             zip_file.writestr(filename, file_content)
@@ -291,6 +295,51 @@ def create_zip_export(collected_data):
         zip_file.writestr("info.txt", info_txt)
                     
     return zip_buffer
+
+# --- FONCTION D'ENVOI EMAIL (SMTP RESTAURÉE) ---
+
+def send_email_with_attachments(recipient_email, project_name, csv_content, zip_buffer):
+    """Envoie un email avec le CSV et le ZIP en pièces jointes via SMTP."""
+    try:
+        # Récupération des secrets SMTP
+        smtp_server = st.secrets["email"]["smtp_server"]
+        smtp_port = st.secrets["email"]["smtp_port"]
+        sender_email = st.secrets["email"]["sender_email"]
+        sender_password = st.secrets["email"]["sender_password"]
+        
+        msg = MIMEMultipart()
+        msg['From'] = sender_email
+        msg['To'] = recipient_email
+        msg['Subject'] = f"Rapport Audit : {project_name}"
+        
+        body = f"Bonjour,\n\nVeuillez trouver ci-joint le rapport d'audit pour le projet {project_name}.\n\nCe mail contient :\n1. Le fichier CSV des réponses.\n2. L'archive ZIP contenant les photos."
+        msg.attach(MIMEText(body, 'plain'))
+        
+        # Attachement CSV
+        # Assurez-vous que l'encodage est correct pour l'attachement
+        part_csv = MIMEApplication(csv_content.encode('utf-8-sig'), Name=f"Rapport_{project_name}.csv")
+        part_csv['Content-Disposition'] = f'attachment; filename="Rapport_{project_name}.csv"'
+        msg.attach(part_csv)
+        
+        # Attachement ZIP
+        if zip_buffer:
+            zip_buffer.seek(0)
+            part_zip = MIMEApplication(zip_buffer.read(), Name=f"Photos_{project_name}.zip")
+            part_zip['Content-Disposition'] = f'attachment; filename="Photos_{project_name}.zip"'
+            msg.attach(part_zip)
+        
+        # Envoi SMTP
+        # Utilisation du contexte 'with' pour s'assurer que la connexion est fermée
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()
+            server.login(sender_email, sender_password)
+            server.send_message(msg)
+            
+        return True, "Email envoyé avec succès !"
+    except KeyError:
+        return False, "Erreur de configuration : Clés SMTP manquantes ou incorrectes dans secrets.toml."
+    except Exception as e:
+        return False, f"Erreur lors de l'envoi de l'e-mail: {e}"
 
 # --- GESTION DE L'ÉTAT (inchangée) ---
 def init_session_state():
@@ -754,57 +803,55 @@ elif st.session_state['step'] == 'FINISHED':
     st.markdown("---")
     
     if st.session_state['data_saved']:
-        # Préparation des données pour le téléchargement et l'e-mail
+        # Préparation des fichiers
         csv_data = create_csv_export(st.session_state['collected_data'], st.session_state['df_struct'])
         zip_buffer = create_zip_export(st.session_state['collected_data'])
         date_str = datetime.now().strftime('%Y%m%d_%H%M')
         
-        # --- 2. TÉLÉCHARGEMENT DIRECT ---
-        st.markdown("### 📥 1. Télécharger les pièces jointes")
-        st.warning("Veuillez télécharger ces deux fichiers pour pouvoir les joindre manuellement à l'e-mail.")
-        
+        # 2. TÉLÉCHARGEMENT DIRECT
+        st.markdown("### 📥 1. Télécharger les fichiers")
         col_csv, col_zip = st.columns(2)
         
-        file_name_csv = f"Export_{project_name}_{date_str}.csv"
         with col_csv:
+            file_name_csv = f"Export_{project_name}_{date_str}.csv"
             st.download_button(label="📄 Télécharger CSV", data=csv_data, file_name=file_name_csv, mime='text/csv')
 
-        if zip_buffer:
-            file_name_zip = f"Photos_{project_name}_{date_str}.zip"
-            with col_zip:
+        with col_zip:
+            if zip_buffer:
+                file_name_zip = f"Photos_{project_name}_{date_str}.zip"
                 # Assurez-vous que le buffer est bien à 0 avant de télécharger
                 zip_buffer.seek(0) 
                 st.download_button(label="📸 Télécharger ZIP Photos", data=zip_buffer.getvalue(), file_name=file_name_zip, mime='application/zip')
     
-        # --- 3. OUVERTURE DE L'APPLICATION NATIVE (MAILTO) ---
+        # 3. PARTAGE EMAIL (SMTP RESTAURÉ)
         st.markdown("---")
-        st.markdown("### 📧 2. Partager par Email")
+        st.markdown("### 📧 2. Envoyer par Email Automatiquement")
+        st.info("Cette option envoie les fichiers directement via le serveur SMTP configuré dans secrets.toml.")
         
-        # Construction du mailto:
-        subject = f"Rapport Audit : {project_name}"
-        body = (
-            f"Bonjour,\n\n"
-            f"Veuillez trouver ci-joint le rapport d'audit pour le projet {project_name}.\n"
-            f"(N'oubliez pas d'ajouter les fichiers CSV et ZIP que vous avez téléchargés précédemment).\n\n"
-            f"Cordialement."
-        )
-        
-        # Encodage de l'URL pour gérer les espaces et caractères spéciaux
-        mailto_link = (
-            f"mailto:?" 
-            f"subject={urllib.parse.quote(subject)}" 
-            f"&body={urllib.parse.quote(body)}"
-        )
-        
-        # Affichage du bouton mailto en utilisant du markdown HTML pour le lien
-        st.markdown(
-            f'<a href="{mailto_link}" target="_blank" style="text-decoration: none;">'
-            f'<button style="background-color: #E9630C; color: white; border: none; padding: 10px 20px; border-radius: 8px; width: 100%; font-size: 16px; cursor: pointer;">'
-            f'Ouvrir l\'application Email'
-            f'</button>'
-            f'</a>',
-            unsafe_allow_html=True
-        )
+        with st.form("email_form"):
+            # Pré-remplir l'email du dernier utilisateur si disponible (ou laisser vide)
+            default_email = st.session_state.get('last_email_sent', '') 
+            recipient = st.text_input("Adresse email du destinataire", value=default_email)
+            submit_email = st.form_submit_button("Envoyer le rapport (CSV + ZIP)")
+            
+            if submit_email:
+                if recipient and '@' in recipient:
+                    with st.spinner("Envoi de l'email en cours..."):
+                        # Stocker l'email pour une prochaine fois
+                        st.session_state['last_email_sent'] = recipient
+                        
+                        is_sent, msg_status = send_email_with_attachments(
+                            recipient, 
+                            project_name, 
+                            csv_data, 
+                            zip_buffer
+                        )
+                        if is_sent:
+                            st.success(msg_status)
+                        else:
+                            st.error(f"Échec de l'envoi : {msg_status}")
+                else:
+                    st.warning("Veuillez entrer une adresse email valide.")
 
     st.markdown("---")
     if st.button("⬅️ Recommencer l'audit"):
