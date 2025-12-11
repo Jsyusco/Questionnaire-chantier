@@ -8,8 +8,7 @@ from datetime import datetime
 import numpy as np
 import zipfile
 import io
-import urllib.parse
-import base64 # Nécessaire pour l'automatisation JS
+import urllib.parse # Ajout pour l'encodage du lien mailto
 
 # --- CONFIGURATION ET STYLE (inchangés) ---
 st.set_page_config(page_title="Formulaire Dynamique - Firestore", layout="centered")
@@ -28,26 +27,6 @@ st.markdown("""
     .error-box { background-color: #3d1f1f; padding: 15px; border-radius: 8px; border-left: 5px solid #ff6b6b; color: #ffdad9; margin: 10px 0; }
     .stButton > button { border-radius: 8px; font-weight: bold; padding: 0.5rem 1rem; }
     div[data-testid="stButton"] > button { width: 100%; }
-    
-    /* Style pour le Super Bouton personnalisé */
-    .custom-email-btn {
-        background-color: #E9630C; 
-        color: white !important; 
-        border: none; 
-        padding: 12px 24px; 
-        border-radius: 8px; 
-        width: 100%; 
-        font-size: 16px; 
-        font-weight: bold;
-        cursor: pointer; 
-        text-align: center;
-        text-decoration: none;
-        display: inline-block;
-        margin-top: 10px;
-    }
-    .custom-email-btn:hover {
-        background-color: #d15609;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -94,6 +73,7 @@ def get_expected_photo_count(section_name, project_data):
             if pd.isna(val) or val == "":
                 num = 0
             else:
+                # Utiliser float() d'abord pour gérer les strings '1.0' ou '1,0'
                 num = int(float(str(val).replace(',', '.'))) 
         except Exception:
             num = 0
@@ -109,6 +89,7 @@ def get_expected_photo_count(section_name, project_data):
 def initialize_firebase():
     if not firebase_admin._apps:
         try:
+            # Récupération des secrets Firebase
             cred_dict = {
                 "type": st.secrets["firebase"]["type"],
                 "project_id": st.secrets["firebase"]["project_id"],
@@ -129,7 +110,7 @@ def initialize_firebase():
             st.sidebar.success("Connexion BDD réussie 🟢")
         
         except KeyError as e:
-            st.sidebar.error(f"Erreur de configuration Secrets : Clé manquante ({e})")
+            st.sidebar.error(f"Erreur de configuration Secrets : Clé manquante dans la section [firebase] ({e})")
             st.stop()
         except Exception as e:
             st.sidebar.error(f"Erreur de connexion Firebase : {e}")
@@ -138,10 +119,11 @@ def initialize_firebase():
 
 db = initialize_firebase()
 
-# --- FONCTIONS DE CHARGEMENT ET SAUVEGARDE FIREBASE (inchangées) ---
+# --- FONCTIONS DE CHARGEMENT ET SAUVEGARDE FIREBASE ---
 
 @st.cache_data(ttl=3600)
 def load_form_structure_from_firestore():
+    # Logique inchangée
     try:
         docs = db.collection('formsquestions').order_by('id').get()
         data = [doc.to_dict() for doc in docs]
@@ -173,6 +155,7 @@ def load_form_structure_from_firestore():
 
 @st.cache_data(ttl=3600)
 def load_site_data_from_firestore():
+    # Logique inchangée
     try:
         docs = db.collection('Sites').get()
         data = [doc.to_dict() for doc in docs]
@@ -184,8 +167,13 @@ def load_site_data_from_firestore():
         return None
 
 def save_form_data(collected_data, project_data):
+    """
+    Sauvegarde les données dans Firestore.
+    Pour les fichiers, on ne sauvegarde que les noms/métadonnées.
+    """
     try:
         cleaned_data = []
+
         for phase in collected_data:
             clean_phase = {
                 "phase_name": phase["phase_name"],
@@ -193,12 +181,17 @@ def save_form_data(collected_data, project_data):
             }
             for k, v in phase["answers"].items():
                 if isinstance(v, list) and v and hasattr(v[0], 'read'): 
+                    # Liste de fichiers : on sauvegarde les noms
                     file_names = ", ".join([f.name for f in v])
                     clean_phase["answers"][str(k)] = f"Fichiers (non stockés en DB): {file_names}"
+                
                 elif hasattr(v, 'read'): 
+                    # Fichier unique
                      clean_phase["answers"][str(k)] = f"Fichier (non stocké en DB): {v.name}"
                 else:
+                    # Donnée texte/nombre standard
                     clean_phase["answers"][str(k)] = v
+            
             cleaned_data.append(clean_phase)
         
         submission_id = st.session_state.get('submission_id', str(uuid.uuid4()))
@@ -261,33 +254,45 @@ def create_csv_export(collected_data, df_struct):
             })
             
     df_export = pd.DataFrame(rows)
+    # Utilisation du séparateur ';' et encodage 'utf-8-sig' pour une meilleure compatibilité Excel
     return df_export.to_csv(index=False, sep=';', encoding='utf-8-sig')
 
 def create_zip_export(collected_data):
+    """
+    Crée un ZIP contenant les photos présentes en mémoire.
+    """
     zip_buffer = io.BytesIO()
+    
     with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
         files_added = 0
         for phase in collected_data:
             phase_name_clean = str(phase['phase_name']).replace("/", "_").replace(" ", "_")
+            
             for q_id, answer in phase['answers'].items():
+                # Si c'est une liste de fichiers (photos)
                 if isinstance(answer, list) and answer and hasattr(answer[0], 'read'):
                     for idx, file_obj in enumerate(answer):
                         try:
+                            # IMPORTANT : revenir au début du fichier après un upload
                             file_obj.seek(0) 
                             file_content = file_obj.read()
+                            # Nom unique dans le ZIP : Phase_QID_Index_NomOriginal
+                            # On nettoie le nom de fichier pour éviter les problèmes de chemin
                             original_name = file_obj.name.split('/')[-1].split('\\')[-1]
                             filename = f"{phase_name_clean}_Q{q_id}_{idx+1}_{original_name}"
                             zip_file.writestr(filename, file_content)
                             files_added += 1
-                            file_obj.seek(0)
+                            file_obj.seek(0) # Reset pour usage ultérieur
                         except Exception as e:
                             print(f"Erreur ajout fichier zip: {e}")
+                            
+        # Ajout d'un petit fichier texte info
         info_txt = f"Export généré le {datetime.now()}\nNombre de fichiers : {files_added}"
         zip_file.writestr("info.txt", info_txt)
+                    
     return zip_buffer
 
-# --- GESTION DE L'ÉTAT, LOGIQUE MÉTIER, VALIDATION ET UI (inchangées) ---
-
+# --- GESTION DE L'ÉTAT (inchangée) ---
 def init_session_state():
     defaults = {
         'step': 'PROJECT_LOAD',
@@ -308,6 +313,8 @@ def init_session_state():
             st.session_state[key] = value
 
 init_session_state()
+
+# --- LOGIQUE MÉTIER (inchangée) ---
 
 def check_condition(row, current_answers, collected_data):
     try:
@@ -332,6 +339,9 @@ def check_condition(row, current_answers, collected_data):
             return False
     except Exception: return True
 
+# -----------------------------------------------------------
+# --- FONCTION VALIDATION (Identique) ---
+# -----------------------------------------------------------
 COMMENT_ID = 100
 COMMENT_QUESTION = "Veuillez préciser pourquoi le nombre de photo partagé ne correspond pas au minimum attendu"
 
@@ -343,15 +353,18 @@ def validate_section(df_questions, section_name, answers, collected_data):
     has_justification = comment_val is not None and str(comment_val).strip() != ""
     project_data = st.session_state.get('project_data', {})
     
+    # Calcul des photos attendues
     expected_total_base, detail_str = get_expected_photo_count(section_name.strip(), project_data)
     expected_total = expected_total_base
     
+    # Nombre de questions de type 'photo' dans cette section
     photo_question_count = sum(
         1 for _, row in section_rows.iterrows()
         if str(row.get('type', '')).strip().lower() == 'photo' and check_condition(row, answers, collected_data)
     )
     
     if expected_total is not None and expected_total > 0:
+        # Multiplie le nombre de bornes attendues par le nombre de questions photo visibles
         expected_total = expected_total_base * photo_question_count
         detail_str = (
             f"{detail_str} | Questions photo visibles: {photo_question_count} "
@@ -370,14 +383,16 @@ def validate_section(df_questions, section_name, answers, collected_data):
             if isinstance(val, list):
                 current_photo_count += len(val)
 
+    # Condition de suffisance (si aucune photo n'est attendue, c'est suffisant)
     is_count_sufficient = (
         expected_total is None or expected_total <= 0 or 
         (expected_total > 0 and current_photo_count >= expected_total)
     )
     
+    # 1. Validation des champs obligatoires
     for _, row in section_rows.iterrows():
         if int(row['id']) == COMMENT_ID: continue
-        if not check_condition(row, answers, collected_data): continue
+        if not check_condition(row, answers, collected_data): continue # Ne valide que les questions visibles
         
         is_mandatory = str(row['obligatoire']).strip().lower() == 'oui'
         q_id = int(row['id'])
@@ -385,17 +400,21 @@ def validate_section(df_questions, section_name, answers, collected_data):
         val = answers.get(q_id)
         
         if is_mandatory:
+            # Cas spécial : la question 'photo' est considérée comme validée si le nombre est suffisant OU s'il y a justification
             if q_type == 'photo':
                 if is_count_sufficient or has_justification:
                     continue
                 else:
+                    # Le manquant sera traité dans la partie 2 (is_photo_count_incorrect)
                     pass
 
+            # Cas général des champs non-photos
             if isinstance(val, list):
                 if not val: missing.append(f"Question {q_id} : {row['question']} (fichier(s) manquant(s))")
             elif val is None or val == "" or (isinstance(val, (int, float)) and val == 0):
                 missing.append(f"Question {q_id} : {row['question']}")
 
+    # 2. Validation de l'écart photo/commentaire
     is_photo_count_incorrect = False
     if expected_total is not None and expected_total > 0:
         if photo_questions_found and current_photo_count != expected_total:
@@ -407,12 +426,14 @@ def validate_section(df_questions, section_name, answers, collected_data):
                 f"Le champ de commentaire doit être rempli."
             )
             if not has_justification:
+                # Ajout de l'erreur seulement s'il n'y a PAS de justification
                 missing.append(
                     f"**Commentaire (ID {COMMENT_ID}) :** {COMMENT_QUESTION} "
                     f"(requis en raison de l'écart de photo : Attendu {expected_total}, Reçu {current_photo_count}).\n\n"
                     f"{error_message}"
                 )
 
+    # Nettoyage : si l'écart est corrigé ou n'existe pas, on retire le commentaire de la réponse
     if not is_photo_count_incorrect and COMMENT_ID in answers:
         del answers[COMMENT_ID]
 
@@ -420,6 +441,8 @@ def validate_section(df_questions, section_name, answers, collected_data):
 
 validate_phase = validate_section
 validate_identification = validate_section
+
+# --- COMPOSANTS UI (inchangés) ---
 
 def render_question(row, answers, phase_name, key_suffix, loop_index):
     q_id = int(row.get('id', 0))
@@ -731,88 +754,57 @@ elif st.session_state['step'] == 'FINISHED':
     st.markdown("---")
     
     if st.session_state['data_saved']:
-        # Préparation des données pour le téléchargement
+        # Préparation des données pour le téléchargement et l'e-mail
         csv_data = create_csv_export(st.session_state['collected_data'], st.session_state['df_struct'])
         zip_buffer = create_zip_export(st.session_state['collected_data'])
         date_str = datetime.now().strftime('%Y%m%d_%H%M')
         
-        file_name_csv = f"Export_{project_name}_{date_str}.csv"
-        file_name_zip = f"Photos_{project_name}_{date_str}.zip"
-        
-        # --- A. TÉLÉCHARGEMENT MANUEL (DEMANDE RESPECTÉE) ---
-        st.markdown("### 📥 1. Téléchargement Manuel")
-        st.markdown("Vous pouvez télécharger les fichiers individuellement si besoin :")
+        # --- 2. TÉLÉCHARGEMENT DIRECT ---
+        st.markdown("### 📥 1. Télécharger les pièces jointes")
+        st.warning("Veuillez télécharger ces deux fichiers pour pouvoir les joindre manuellement à l'e-mail.")
         
         col_csv, col_zip = st.columns(2)
+        
+        file_name_csv = f"Export_{project_name}_{date_str}.csv"
         with col_csv:
             st.download_button(label="📄 Télécharger CSV", data=csv_data, file_name=file_name_csv, mime='text/csv')
 
-        with col_zip:
-            if zip_buffer:
+        if zip_buffer:
+            file_name_zip = f"Photos_{project_name}_{date_str}.zip"
+            with col_zip:
+                # Assurez-vous que le buffer est bien à 0 avant de télécharger
                 zip_buffer.seek(0) 
                 st.download_button(label="📸 Télécharger ZIP Photos", data=zip_buffer.getvalue(), file_name=file_name_zip, mime='application/zip')
-
-        # --- B. SUPER BOUTON : EMAIL + TÉLÉCHARGEMENT AUTO ---
+    
+        # --- 3. OUVERTURE DE L'APPLICATION NATIVE (MAILTO) ---
         st.markdown("---")
-        st.markdown("### 📧 2. Envoi par Email (Action Rapide)")
-        st.info("⚠️ Pour des raisons de sécurité, le navigateur ne peut pas joindre les fichiers automatiquement. Ce bouton va **télécharger** les fichiers sur votre appareil et **ouvrir** votre email. Il vous suffira de glisser les fichiers téléchargés dans le message.")
-
-        # Préparation des données pour le script JS
-        # Encodage CSV
-        csv_b64 = base64.b64encode(csv_data.encode('utf-8-sig')).decode()
+        st.markdown("### 📧 2. Partager par Email")
         
-        # Encodage ZIP
-        zip_b64 = ""
-        if zip_buffer:
-            zip_buffer.seek(0)
-            zip_b64 = base64.b64encode(zip_buffer.read()).decode()
-
-        # Construction du mailto
+        # Construction du mailto:
         subject = f"Rapport Audit : {project_name}"
         body = (
             f"Bonjour,\n\n"
             f"Veuillez trouver ci-joint le rapport d'audit pour le projet {project_name}.\n"
-            f"(Les fichiers ont été téléchargés automatiquement, merci de les joindre à ce mail).\n\n"
+            f"(N'oubliez pas d'ajouter les fichiers CSV et ZIP que vous avez téléchargés précédemment).\n\n"
             f"Cordialement."
         )
-        mailto_link = f"mailto:?subject={urllib.parse.quote(subject)}&body={urllib.parse.quote(body)}"
-
-        # Script JS pour déclencher les 2 téléchargements et ouvrir le mailto
-        # On utilise des timeouts pour s'assurer que le navigateur ne bloque pas les actions multiples
-        html_code = f"""
-        <script>
-            function downloadAndOpenMail() {{
-                // 1. Téléchargement CSV
-                var link1 = document.createElement('a');
-                link1.href = "data:text/csv;charset=utf-8-sig;base64,{csv_b64}";
-                link1.download = "{file_name_csv}";
-                document.body.appendChild(link1);
-                link1.click();
-                document.body.removeChild(link1);
-
-                // 2. Téléchargement ZIP (avec léger délai)
-                setTimeout(function() {{
-                    var link2 = document.createElement('a');
-                    link2.href = "data:application/zip;base64,{zip_b64}";
-                    link2.download = "{file_name_zip}";
-                    document.body.appendChild(link2);
-                    link2.click();
-                    document.body.removeChild(link2);
-                }}, 500);
-
-                // 3. Ouverture Email (avec délai pour laisser le temps aux téléchargements de se lancer)
-                setTimeout(function() {{
-                    window.location.href = "{mailto_link}";
-                }}, 1500);
-            }}
-        </script>
         
-        <button class="custom-email-btn" onclick="downloadAndOpenMail()">
-            🚀 Télécharger les fichiers et Ouvrir l'Email
-        </button>
-        """
+        # Encodage de l'URL pour gérer les espaces et caractères spéciaux
+        mailto_link = (
+            f"mailto:?" 
+            f"subject={urllib.parse.quote(subject)}" 
+            f"&body={urllib.parse.quote(body)}"
+        )
         
-        st.components.v1.html(html_code, height=80)
+        # Affichage du bouton mailto en utilisant du markdown HTML pour le lien
+        st.markdown(
+            f'<a href="{mailto_link}" target="_blank" style="text-decoration: none;">'
+            f'<button style="background-color: #E9630C; color: white; border: none; padding: 10px 20px; border-radius: 8px; width: 100%; font-size: 16px; cursor: pointer;">'
+            f'Ouvrir l\'application Email'
+            f'</button>'
+            f'</a>',
+            unsafe_allow_html=True
+        )
 
     st.markdown("---")
     if st.button("⬅️ Recommencer l'audit"):
