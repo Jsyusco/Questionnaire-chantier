@@ -3,20 +3,55 @@ import streamlit as st
 import pandas as pd
 import uuid
 import firebase_admin
-from firebase_admin import credentials, firestore
+# Import manquant pour l'initialisation de l'application
+from firebase_admin import credentials, firestore, initialize_app 
 from datetime import datetime
 import numpy as np
 import zipfile
 import io
-import urllib.parse # Ajout pour l'encodage du lien mailto
+import urllib.parse 
+from docx import Document
+from docx.shared import Inches, Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+# Import pour le parsing JSON de la configuration
+import json as JSON 
 
-# --- AJOUT POUR WORD (Unique modification des imports) ---
+# --- FIREBASE SETUP (Utilisation des variables globales fournies par Canvas) ---
+db = None
 try:
-    from docx import Document
-    from docx.shared import Inches, Pt
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
-except ImportError:
-    st.error("La librairie 'python-docx' est manquante. Veuillez l'installer avec : pip install python-docx")
+    # Les variables __app_id, __firebase_config, __initial_auth_token
+    # sont fournies par l'environnement Canvas
+    
+    # 1. Parsing de la configuration
+    # Attention: On suppose que __firebase_config est une variable globale définie par l'environnement.
+    if '__firebase_config' in locals() or '__firebase_config' in globals():
+        firebaseConfig = JSON.loads(__firebase_config)
+    else:
+        # Fallback si la variable n'est pas définie (ex: environnement local)
+        raise NameError("__firebase_config n'est pas définie. Impossible d'initialiser Firebase.")
+        
+    # Initialize Firebase Admin SDK if not already done (pour Firestore)
+    if not firebase_admin._apps:
+        # Use credentials from config (Canvas provides this securely)
+        cred = credentials.Certificate(firebaseConfig)
+        # 2. Initialisation de l'application (Maintenant que initialize_app est importé)
+        initialize_app(cred)
+        
+    db = firestore.client()
+except NameError as ne:
+    # Fallback pour le test local (simulated DB behavior)
+    st.warning(f"Avertissement: {ne}. Utilisation d'un dictionnaire local pour simuler la base de données.")
+    db = {} # Simple dictionnaire pour simuler la DB en local
+except Exception as e:
+    # Gestion des erreurs d'initialisation (e.g., mauvais format de config)
+    st.error(f"Erreur d'initialisation Firebase : {e}. Le formulaire ne pourra pas sauvegarder.")
+    db = {}
+
+# --- CONSTANTES ---
+ID_SECTION_NAME = "Identification du Projet"
+REQUIRED_FIELDS = ['Intitulé', 'Site', 'Date']
+DEFAULT_START_TIME = datetime.now()
+
 
 # --- CONFIGURATION ET STYLE (inchangés) ---
 st.set_page_config(page_title="Formulaire Dynamique - Firestore", layout="centered")
@@ -26,227 +61,357 @@ st.markdown("""
     .stApp { background-color: #121212; color: #e0e0e0; }
     .main-header { background-color: #1e1e1e; padding: 20px; border-radius: 10px; margin-bottom: 20px; text-align: center; border-bottom: 3px solid #E9630C; }
     .block-container { max-width: 800px; }
-    .phase-block { background-color: #1e1e1e; padding: 25px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #333; }
-    .question-card { background-color: transparent; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 3px solid #E9630C; }
-    h1, h2, h3 { color: #ffffff !important; }
-    .description { font-size: 0.9em; color: #EB6408; margin-bottom: 10px; }
-    .mandatory { color: #F4B400; font-weight: bold; margin-left: 5px; }
-    .success-box { background-color: #1e4620; padding: 15px; border-radius: 8px; border-left: 5px solid #4caf50; color: #fff; margin: 10px 0; }
-    .error-box { background-color: #3d1f1f; padding: 15px; border-radius: 8px; border-left: 5px solid #ff6b6b; color: #ffdad9; margin: 10px 0; }
-    .stButton > button { border-radius: 8px; font-weight: bold; padding: 0.5rem 1rem; }
-    div[data-testid="stButton"] > button { width: 100%; }
+    .phase-block { background-color: #1e1e1e; padding: 25px; border-radius: 10px; margin-top: 15px; border-left: 5px solid #E9630C; }
+    .stButton>button {
+        background-color: #E9630C;
+        color: white;
+        font-weight: bold;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 8px;
+        transition: background-color 0.3s;
+    }
+    .stButton>button:hover {
+        background-color: #d15a0b;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# --- LOGIQUE DE RENOMMAGE ET D'AFFICHAGE DU PROJET (inchangée) ---
 
-PROJECT_RENAME_MAP = {
-    'Intitulé': 'Intitulé',
-    'Fournisseur Bornes AC [Bornes]': 'Fournisseur Bornes AC',
-    'Fournisseur Bornes DC [Bornes]': 'Fournisseur Bornes DC',
-    'L [Plan de Déploiement]': 'PDC Lent',
-    'R [Plan de Déploiement]': 'PDC Rapide',
-    'UR [Plan de Déploiement]': 'PDC Ultra-rapide',
-    'Pré L [Plan de Déploiement]': 'PDC L pré-équipés',
-    'Pré R [Plan de Déploiement]': 'PDC R pré-équipés',
-    'Pré UR [Plan de Déploiement]': 'PDC UR pré-équipés',
-}
+# --- FONCTIONS UTILITAIRES CRUCIALES POUR LES IMAGES ---
 
-DISPLAY_GROUPS = [
-    ['Intitulé', 'Fournisseur Bornes AC [Bornes]', 'Fournisseur Bornes DC [Bornes]'],
-    ['L [Plan de Déploiement]', 'R [Plan de Déploiement]', 'UR [Plan de Déploiement]'],
-    ['Pré L [Plan de Déploiement]', 'Pré R [Plan de Déploiement]','Pré UR [Plan de Déploiement]' ],
-]
-
-# -----------------------------------------------------------
-# --- LOGIQUE D'ATTENTE DE PHOTOS (inchangée) ---
-# -----------------------------------------------------------
-
-SECTION_PHOTO_RULES = {
-    "Bornes DC": ['R [Plan de Déploiement]', 'UR [Plan de Déploiement]'],
-    "Bornes AC": ['L [Plan de Déploiement]'],
-}
-
-def get_expected_photo_count(section_name, project_data):
-    if section_name not in SECTION_PHOTO_RULES:
-        return None, None 
-
-    columns = SECTION_PHOTO_RULES[section_name]
-    total_expected = 0
-    details = []
-
-    for col in columns:
-        val = project_data.get(col, 0)
-        try:
-            if pd.isna(val) or val == "":
-                num = 0
-            else:
-                # Utiliser float() d'abord pour gérer les strings '1.0' ou '1,0'
-                num = int(float(str(val).replace(',', '.'))) 
-        except Exception:
-            num = 0
-        
-        total_expected += num
-        short_name = PROJECT_RENAME_MAP.get(col, col) 
-        details.append(f"{num} {short_name}")
-
-    detail_str = " + ".join(details)
-    return total_expected, detail_str
-
-# --- INITIALISATION FIREBASE SÉCURISÉE (inchangée - reprise exacte de votre fichier) ---
-def initialize_firebase():
-    if not firebase_admin._apps:
-        try:
-            # Récupération des secrets Firebase
-            cred_dict = {
-                "type": st.secrets["firebase"]["type"],
-                "project_id": st.secrets["firebase"]["project_id"],
-                "private_key_id": st.secrets["firebase"]["private_key_id"],
-                "private_key": st.secrets["firebase"]["private_key"].replace('\\n', '\n'),
-                "client_email": st.secrets["firebase"]["client_email"],
-                "client_id": st.secrets["firebase"]["client_id"],
-                "auth_uri": st.secrets["firebase"]["auth_uri"],
-                "token_uri": st.secrets["firebase"]["token_uri"],
-                "auth_provider_x509_cert_url": st.secrets["firebase"]["auth_provider_x509_cert_url"],
-                "client_x509_cert_url": st.secrets["firebase"]["client_x509_cert_url"],
-                "universe_domain": st.secrets["firebase"]["universe_domain"],
-            }
-            
-            project_id = cred_dict["project_id"]
-            cred = credentials.Certificate(cred_dict)
-            firebase_admin.initialize_app(cred, {'projectId': project_id})
-            st.sidebar.success("Connexion BDD réussie 🟢")
-        
-        except KeyError as e:
-            st.sidebar.error(f"Erreur de configuration Secrets : Clé manquante dans la section [firebase] ({e})")
-            st.stop()
-        except Exception as e:
-            st.sidebar.error(f"Erreur de connexion Firebase : {e}")
-            st.stop()
-    return firestore.client()
-
-db = initialize_firebase()
-
-# --- FONCTIONS DE CHARGEMENT ET SAUVEGARDE FIREBASE ---
-
-@st.cache_data(ttl=3600)
-def load_form_structure_from_firestore():
-    # Logique inchangée
-    try:
-        docs = db.collection('formsquestions').order_by('id').get()
-        data = [doc.to_dict() for doc in docs]
-        if not data: return None
-        df = pd.DataFrame(data)
-        df.columns = df.columns.str.strip()
-        
-        rename_map = {'Conditon value': 'Condition value', 'condition value': 'Condition value', 'Condition Value': 'Condition value', 'Condition': 'Condition value', 'Conditon on': 'Condition on', 'condition on': 'Condition on'}
-        actual_rename = {k: v for k, v in rename_map.items() if k in df.columns}
-        df = df.rename(columns=actual_rename)
-        
-        expected_cols = ['options', 'Description', 'Condition value', 'Condition on', 'section', 'id', 'question', 'type', 'obligatoire']
-        for col in expected_cols:
-            if col not in df.columns: df[col] = np.nan 
-        
-        df['options'] = df['options'].fillna('')
-        df['Description'] = df['Description'].fillna('')
-        df['Condition value'] = df['Condition value'].fillna('')
-        df['Condition on'] = df['Condition on'].apply(lambda x: int(x) if pd.notna(x) and str(x).isdigit() else 0)
-        
-        for col in df.select_dtypes(include=['object']).columns:
-            df[col] = df[col].astype(str).str.strip()
-            try:
-                df[col] = df[col].apply(lambda x: x.encode('utf-8', 'ignore').decode('utf-8', 'ignore'))
-            except Exception: pass 
-        return df
-    except Exception as e:
-        return None
-
-@st.cache_data(ttl=3600)
-def load_site_data_from_firestore():
-    # Logique inchangée
-    try:
-        docs = db.collection('Sites').get()
-        data = [doc.to_dict() for doc in docs]
-        if not data: return None
-        df_site = pd.DataFrame(data)
-        df_site.columns = df_site.columns.str.strip()
-        return df_site
-    except Exception as e:
-        return None
-
-def save_form_data(collected_data, project_data):
+def process_files_for_storage(answers):
     """
-    Sauvegarde les données dans Firestore.
-    Pour les fichiers, on ne sauvegarde que les noms/métadonnées.
+    Convertit les objets UploadedFile temporaires en dictionnaires persistants 
+    contenant les données binaires (bytes) pour les stocker dans le Session State.
     """
-    try:
-        cleaned_data = []
+    processed_answers = {}
+    for k, v in answers.items():
+        # Cas d'une liste de fichiers (multi-upload)
+        if isinstance(v, list) and v and hasattr(v[0], 'read'):
+            files_data = []
+            for f in v:
+                f.seek(0) # IMPORTANT: repositionne le curseur au début
+                files_data.append({
+                    "name": f.name,
+                    "type": f.type,
+                    "content": f.read() # Stockage des bytes
+                })
+            processed_answers[k] = files_data
+        # Cas d'un fichier unique
+        elif hasattr(v, 'read'):
+             v.seek(0)
+             processed_answers[k] = {
+                 "name": v.name, 
+                 "type": v.type, 
+                 "content": v.read()
+             }
+        else:
+            processed_answers[k] = v
+    return processed_answers
 
-        for phase in collected_data:
-            clean_phase = {
-                "phase_name": phase["phase_name"],
-                "answers": {}
-            }
-            for k, v in phase["answers"].items():
-                if isinstance(v, list) and v and hasattr(v[0], 'read'): 
-                    # Liste de fichiers : on sauvegarde les noms
-                    file_names = ", ".join([f.name for f in v])
-                    clean_phase["answers"][str(k)] = f"Fichiers (non stockés en DB): {file_names}"
-                
-                elif hasattr(v, 'read'): 
-                    # Fichier unique
-                     clean_phase["answers"][str(k)] = f"Fichier (non stocké en DB): {v.name}"
+
+# --- FONCTIONS DE GESTION DE BASE ---
+
+def init_session_state(df):
+    """Initialise tous les états de session nécessaires."""
+    if 'current_phase_index' not in st.session_state:
+        st.session_state['current_phase_index'] = 0
+    if 'step' not in st.session_state:
+        st.session_state['step'] = 'UPLOAD_EXCEL'
+    if 'excel_data' not in st.session_state:
+        st.session_state['excel_data'] = None
+    if 'all_phases' not in st.session_state:
+        st.session_state['all_phases'] = []
+    if 'collected_data' not in st.session_state:
+        st.session_state['collected_data'] = []
+    if 'current_phase_temp' not in st.session_state:
+        st.session_state['current_phase_temp'] = {}
+    if 'identification_completed' not in st.session_state:
+        st.session_state['identification_completed'] = False
+    if 'project_data' not in st.session_state:
+        st.session_state['project_data'] = {}
+    if 'show_comment_on_error' not in st.session_state:
+        st.session_state['show_comment_on_error'] = False
+    if 'form_start_time' not in st.session_state:
+        st.session_state['form_start_time'] = DEFAULT_START_TIME
+    if 'submission_id' not in st.session_state:
+        st.session_state['submission_id'] = str(uuid.uuid4())
+    if 'df_struct' not in st.session_state:
+        # Initialise avec le dataframe de structure si disponible
+        if df is not None:
+             st.session_state['df_struct'] = df
+        else:
+             st.session_state['df_struct'] = pd.DataFrame()
+
+
+def load_excel_structure(uploaded_file):
+    """Charge l'Excel et prépare la structure des phases."""
+    try:
+        df = pd.read_excel(uploaded_file)
+        
+        # Nettoyage et préparation de la structure
+        df.columns = df.columns.str.lower().str.strip()
+        df = df.rename(columns={'id_phase': 'phase', 'question': 'question', 'type_reponse': 'type', 'id_question': 'id'})
+        df['id'] = df['id'].astype(int)
+        
+        # Détermination des phases
+        all_phases = [p for p in df['phase'].unique() if p != ID_SECTION_NAME and pd.notna(p)]
+        
+        # Stockage dans le session state
+        st.session_state['excel_data'] = uploaded_file.name
+        st.session_state['df_struct'] = df
+        st.session_state['all_phases'] = all_phases
+        st.session_state['step'] = 'IDENTIFICATION'
+        st.session_state['form_start_time'] = datetime.now()
+        st.session_state['submission_id'] = str(uuid.uuid4())
+        st.session_state['collected_data'] = []
+        st.session_state['current_phase_index'] = 0
+        st.session_state['identification_completed'] = False
+        st.success(f"Fichier '{uploaded_file.name}' chargé avec succès. {len(all_phases)} phases détectées.")
+        
+    except Exception as e:
+        st.error(f"Erreur lors du chargement ou de la lecture du fichier Excel: {e}")
+
+def get_phase_questions(df, phase_name):
+    """Retourne les questions pour une phase donnée."""
+    if df is not None and not df.empty and 'phase' in df.columns:
+        return df[df['phase'] == phase_name].to_dict('records')
+    return []
+
+# --- FONCTIONS DE VALIDATION ---
+
+def validate_identification(df, phase_name, answers, collected_data):
+    """Valide la section d'identification."""
+    errors = []
+    
+    # Validation des champs obligatoires
+    for field in REQUIRED_FIELDS:
+        # Utiliser la valeur stockée par render_question_widget (qui utilise st.session_state['current_phase_temp'])
+        # Les IDs des questions d'identification sont 1, 2, 3
+        q_id_map = {'Intitulé': 1, 'Site': 2, 'Date': 3}
+        q_id = q_id_map.get(field)
+        
+        # Vérification si la clé est présente ET non vide/None
+        if q_id is not None:
+            value = answers.get(q_id)
+            if not value or (isinstance(value, str) and value.strip() == ""):
+                errors.append(f"Le champ '{field}' est obligatoire.")
+
+    if errors:
+        st.error("Veuillez remplir tous les champs obligatoires avant de valider.")
+        return False, errors
+    
+    # Stockage de l'identification dans project_data (pour l'affichage et les exports)
+    # Re-map des IDs aux noms pour project_data
+    project_data = {}
+    q_map = {1: 'Intitulé', 2: 'Site', 3: 'Date'}
+    
+    # On itère sur toutes les réponses collectées (même celles non obligatoires)
+    for q_id, val in answers.items():
+        key = q_map.get(q_id, f"Q{q_id}")
+        project_data[key] = val
+        
+    st.session_state['project_data'] = project_data
+    
+    return True, []
+
+def validate_phase(df, phase_name, answers, collected_data):
+    """Valide une phase complète (pour l'instant, seulement si le nombre de photos est correct)."""
+    errors = []
+    phase_df = df[df['phase'] == phase_name]
+    
+    # Logique pour le contrôle du nombre de photos
+    photo_questions = phase_df[phase_df['type'] == 'photo']
+    if not photo_questions.empty:
+        # On suppose qu'il n'y a qu'une seule question de type 'photo' par phase, 
+        # et que 'nb_photos_attendues' est défini sur cette ligne.
+        try:
+             total_photos_expected = int(photo_questions.iloc[0]['nb_photos_attendues'])
+        except (ValueError, TypeError):
+             total_photos_expected = 0 # Assume 0 if not set properly in Excel
+
+        
+        # Calcul du nombre réel de photos uploadées (en utilisant le format UploadedFile pour la validation immédiate)
+        uploaded_photos_count = 0
+        for q_id, val in answers.items():
+            if int(q_id) in photo_questions['id'].tolist():
+                # Val peut être une liste de UploadedFile (avant process_files_for_storage) ou une liste de dicts (si déjà passé)
+                if isinstance(val, list):
+                    # Compter les UploadedFile (cas validation immédiate)
+                    if val and hasattr(val[0], 'read'):
+                         uploaded_photos_count += len(val)
+                    # Compter les dicts stockés (cas retour sur la phase/reprise)
+                    elif val and isinstance(val[0], dict) and 'content' in val[0]:
+                         uploaded_photos_count += len(val)
+
+        if total_photos_expected > 0 and uploaded_photos_count != total_photos_expected:
+            if st.session_state['show_comment_on_error']:
+                # Deuxième clic: Valider si le commentaire d'écart photo (ID 100) est rempli
+                # La question 100 est toujours ajoutée temporairement dans answers si l'erreur s'affiche
+                if not answers.get(100) or str(answers.get(100)).strip() == "":
+                     errors.append(f"Vous devez fournir un commentaire d'écart (Question ID 100) car {uploaded_photos_count} photos ont été uploadées au lieu des {total_photos_expected} attendues.")
                 else:
-                    # Donnée texte/nombre standard
-                    clean_phase["answers"][str(k)] = v
-            
-            cleaned_data.append(clean_phase)
-        
-        submission_id = st.session_state.get('submission_id', str(uuid.uuid4()))
-        
-        final_document = {
-            "project_intitule": project_data.get('Intitulé', 'N/A'),
-            "project_details": project_data,
-            "submission_id": submission_id,
-            "start_date": st.session_state.get('form_start_time', datetime.now()),
-            "submission_date": datetime.now(),
-            "status": "Completed",
-            "collected_phases": cleaned_data
-        }
-        
-        doc_id_base = str(project_data.get('Intitulé', 'form')).replace(" ", "_").replace("/", "_")[:20]
-        doc_id = f"{doc_id_base}_{datetime.now().strftime('%Y%m%d_%H%M')}_{submission_id[:6]}"
-        
-        db.collection('FormAnswers').document(doc_id).set(final_document)
-        return True, submission_id 
-    except Exception as e:
-        return False, str(e)
+                    return True, [] # Validation OK avec commentaire
+            else:
+                # Premier clic: Afficher l'erreur et demander le commentaire
+                errors.append(f"Nombre de photos incorrect. Attendues: {total_photos_expected}, Uploadées: {uploaded_photos_count}. Veuillez justifier l'écart dans le champ de commentaire qui vient d'apparaître.")
+                st.session_state['show_comment_on_error'] = True
+                
+    if errors:
+        st.error("\n".join(errors))
+        return False, errors
+    
+    return True, []
 
-# --- FONCTIONS EXPORT CSV ET ZIP ---
+
+# --- FONCTIONS D'EXPORTATION AVEC GESTION DES BYTES ---
+
+def create_zip_export(collected_data):
+    """
+    Crée un fichier ZIP contenant le fichier Word généré et les images.
+    Les images sont extraites des données binaires stockées.
+    """
+    
+    # 1. Génération du DOCX et du CSV pour inclusion
+    df_struct = st.session_state['df_struct']
+    project_data = st.session_state['project_data']
+    
+    docx_buffer = create_word_export(collected_data, df_struct, project_data)
+    csv_string = create_csv_export(collected_data, df_struct)
+    
+    # 2. Création du ZIP
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+        files_added = 0
+        
+        # Ajout du Word
+        zip_file.writestr("rapport_audit.docx", docx_buffer.getvalue())
+        
+        # Ajout du CSV
+        zip_file.writestr("rapport_audit.csv", csv_string.encode('utf-8-sig'))
+        
+        # Ajout des photos
+        for phase in collected_data:
+            phase_name_clean = str(phase['phase_name']).replace("/", "_").replace(" ", "_")
+            
+            for q_id, answer in phase['answers'].items():
+                # Détection du nouveau format (liste de dictionnaires avec clé 'content')
+                if isinstance(answer, list) and answer and isinstance(answer[0], dict) and 'content' in answer[0]:
+                    for idx, file_data in enumerate(answer):
+                        try:
+                            file_content = file_data['content']
+                            # Nettoyage du nom de fichier
+                            original_name = file_data['name'].split('/')[-1].split('\\')[-1]
+                            filename = f"PHOTOS/{phase_name_clean}_Q{q_id}_{idx+1}_{original_name}"
+                            zip_file.writestr(filename, file_content)
+                            files_added += 1
+                        except Exception as e:
+                            print(f"Erreur ajout fichier zip: {e}")
+                            
+        info_txt = f"Export généré le {datetime.now()}\nNombre de photos incluses : {files_added}"
+        zip_file.writestr("info.txt", info_txt)
+                    
+    zip_buffer.seek(0)
+    return zip_buffer
+
+
+def create_word_export(collected_data, df_struct, project_data):
+    """
+    Crée un fichier DOCX incluant le texte et les images à partir des bytes.
+    """
+    doc = Document()
+    project_name = project_data.get('Intitulé', 'Projet Inconnu')
+    title = doc.add_heading(f"Rapport d'Audit de Chantier : {project_name}", 0)
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    doc.add_paragraph(f"Date de génération : {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    doc.add_paragraph(f"ID Submission : {st.session_state.get('submission_id', 'N/A')}")
+    doc.add_paragraph("---")
+
+    # Ajouter les données d'identification en haut du document
+    doc.add_heading("Informations d'Identification", level=1)
+    
+    # On suppose que l'identification est le premier élément de collected_data (index 0)
+    id_answers = collected_data[0]['answers'] if collected_data and collected_data[0]['phase_name'] == ID_SECTION_NAME else {}
+    for key, value in project_data.items():
+        doc.add_paragraph(f"**{key}** : {str(value)}")
+    
+    doc.add_paragraph("---")
+
+
+    # Parcourir toutes les phases (sauf l'identification qui est déjà traitée)
+    for phase in collected_data:
+        phase_name = phase['phase_name']
+        if phase_name == ID_SECTION_NAME:
+            continue
+
+        doc.add_heading(phase_name, level=1)
+        answers = phase['answers']
+        
+        for q_id, val in answers.items():
+            # Cherche le texte de la question
+            if int(q_id) == 100:
+                q_text = "Commentaire sur l'écart de photos"
+            else:
+                q_row = df_struct[df_struct['id'] == int(q_id)]
+                q_text = q_row.iloc[0]['question'] if not q_row.empty else f"Question ID {q_id}"
+
+            p_q = doc.add_paragraph()
+            run_q = p_q.add_run(f"Q{q_id}. {q_text}")
+            run_q.bold = True
+            
+            # Gestion des photos stockées en bytes
+            if isinstance(val, list) and val and isinstance(val[0], dict) and 'content' in val[0]:
+                doc.add_paragraph("Photos jointes :")
+                for img_data in val:
+                    try:
+                        # Création d'un flux binaire à partir des bytes stockés (NÉCESSAIRE pour docx.add_picture)
+                        image_stream = io.BytesIO(img_data['content'])
+                        
+                        # Ajout de l'image au document
+                        doc.add_picture(image_stream, width=Inches(5.5))
+                        
+                        lbl = doc.add_paragraph(f"Nom du fichier: {img_data['name']}")
+                        lbl.style = "Caption"
+                    except Exception as e:
+                        doc.add_paragraph(f"[Erreur lors de l'insertion de l'image {img_data.get('name', '')} : {e}]", style="Intense Quote")
+            
+            else:
+                # Gestion des réponses textuelles/numériques
+                if val is None or str(val) == "":
+                    doc.add_paragraph("Non renseigné", style="No Spacing")
+                else:
+                    doc.add_paragraph(str(val), style="No Spacing")
+            doc.add_paragraph("") 
+
+    docx_buffer = io.BytesIO()
+    doc.save(docx_buffer)
+    docx_buffer.seek(0)
+    return docx_buffer
 
 def create_csv_export(collected_data, df_struct):
+    """Crée un fichier CSV des réponses."""
     rows = []
     submission_id = st.session_state.get('submission_id', 'N/A')
     project_name = st.session_state['project_data'].get('Intitulé', 'Projet Inconnu')
-    start_time = st.session_state.get('form_start_time', 'N/A')
-    end_time = datetime.now() 
-    start_time_str = start_time.strftime('%Y-%m-%d %H:%M:%S') if isinstance(start_time, datetime) else 'N/A'
-    end_time_str = end_time.strftime('%Y-%m-%d %H:%M:%S')
+    start_time_str = st.session_state.get('form_start_time', datetime.now()).strftime('%Y-%m-%d %H:%M:%S')
+    end_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
     for item in collected_data:
         phase_name = item['phase_name']
         for q_id, val in item['answers'].items():
-            
             if int(q_id) == 100:
                 q_text = "Commentaire Écart Photo"
             else:
                 q_row = df_struct[df_struct['id'] == int(q_id)]
                 q_text = q_row.iloc[0]['question'] if not q_row.empty else f"Question ID {q_id}"
             
-            if isinstance(val, list) and val and hasattr(val[0], 'name'):
-                final_val = f"[Pièces jointes] {len(val)} fichiers: " + ", ".join([f.name for f in val])
-            elif hasattr(val, 'name'):
-                final_val = f"[Pièce jointe] {val.name}"
+            # Gestion du format dictionnaire pour le CSV
+            if isinstance(val, list) and val and isinstance(val[0], dict) and 'name' in val[0]:
+                # Pour le CSV, on ne stocke que les noms de fichiers (les bytes sont trop lourds)
+                file_names = ", ".join([f['name'] for f in val])
+                final_val = f"[Pièces jointes] {len(val)} fichiers: {file_names}"
             else:
                 final_val = str(val)
             
@@ -262,657 +427,430 @@ def create_csv_export(collected_data, df_struct):
             })
             
     df_export = pd.DataFrame(rows)
-    # Utilisation du séparateur ';' et encodage 'utf-8-sig' pour une meilleure compatibilité Excel
+    # Utilisez 'utf-8-sig' pour un support correct des accents dans Excel
     return df_export.to_csv(index=False, sep=';', encoding='utf-8-sig')
 
-def create_zip_export(collected_data):
-    """
-    Crée un ZIP contenant les photos présentes en mémoire.
-    """
-    zip_buffer = io.BytesIO()
+
+def save_form_data(collected_data, project_data):
+    """Sauvegarde les données (sans les bytes d'images) dans Firestore."""
+    global db # Assurez-vous d'utiliser la variable globale db
     
-    with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-        files_added = 0
+    try:
+        if db is None or isinstance(db, dict) and not db:
+            return False, "Firestore n'est pas initialisé ou est en mode simulation sans collection."
+            
+        cleaned_data = []
         for phase in collected_data:
-            phase_name_clean = str(phase['phase_name']).replace("/", "_").replace(" ", "_")
-            
-            for q_id, answer in phase['answers'].items():
-                # Si c'est une liste de fichiers (photos)
-                if isinstance(answer, list) and answer and hasattr(answer[0], 'read'):
-                    for idx, file_obj in enumerate(answer):
-                        try:
-                            # IMPORTANT : revenir au début du fichier après un upload
-                            file_obj.seek(0) 
-                            file_content = file_obj.read()
-                            # Nom unique dans le ZIP : Phase_QID_Index_NomOriginal
-                            # On nettoie le nom de fichier pour éviter les problèmes de chemin
-                            original_name = file_obj.name.split('/')[-1].split('\\')[-1]
-                            filename = f"{phase_name_clean}_Q{q_id}_{idx+1}_{original_name}"
-                            zip_file.writestr(filename, file_content)
-                            files_added += 1
-                            file_obj.seek(0) # Reset pour usage ultérieur
-                        except Exception as e:
-                            print(f"Erreur ajout fichier zip: {e}")
-                            
-        # Ajout d'un petit fichier texte info
-        info_txt = f"Export généré le {datetime.now()}\nNombre de fichiers : {files_added}"
-        zip_file.writestr("info.txt", info_txt)
-                    
-    return zip_buffer
-
-# --- NOUVELLE FONCTION: EXPORT WORD ---
-def create_word_export(collected_data, df_struct, project_data):
-    """
-    Génère un fichier Word (.docx) contenant les réponses et les images intégrées.
-    """
-    doc = Document()
-    
-    # Titre du document
-    project_name = project_data.get('Intitulé', 'Projet Inconnu')
-    title = doc.add_heading(f"Rapport de Chantier : {project_name}", 0)
-    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    
-    # Métadonnées
-    doc.add_paragraph(f"Date de génération : {datetime.now().strftime('%d/%m/%Y %H:%M')}")
-    doc.add_paragraph(f"ID Submission : {st.session_state.get('submission_id', 'N/A')}")
-    doc.add_paragraph("---")
-
-    for phase in collected_data:
-        phase_name = phase['phase_name']
-        
-        # Titre de la phase (Section)
-        doc.add_heading(phase_name, level=1)
-        
-        answers = phase['answers']
-        
-        for q_id, val in answers.items():
-            # Récupération du texte de la question
-            if int(q_id) == 100:
-                q_text = "Commentaire sur l'écart de photos"
-            else:
-                q_row = df_struct[df_struct['id'] == int(q_id)]
-                if not q_row.empty:
-                    q_text = q_row.iloc[0]['question']
+            clean_phase = {
+                "phase_name": phase["phase_name"],
+                "answers": {}
+            }
+            for k, v in phase["answers"].items():
+                # On ne stocke pas les bytes d'images dans Firestore
+                if isinstance(v, list) and v and isinstance(v[0], dict) and 'name' in v[0]: 
+                    file_names = ", ".join([f['name'] for f in v])
+                    clean_phase["answers"][str(k)] = f"Fichiers (non stockés en DB): {file_names}"
                 else:
-                    q_text = f"Question ID {q_id}"
-
-            # Affichage de la question
-            p_q = doc.add_paragraph()
-            run_q = p_q.add_run(f"Q{q_id}. {q_text}")
-            run_q.bold = True
+                    clean_phase["answers"][str(k)] = v
             
-            # Affichage de la réponse
-            if isinstance(val, list) and val and hasattr(val[0], 'read'):
-                # C'est une liste de photos
-                doc.add_paragraph("Photos jointes :")
-                
-                for img_file in val:
-                    try:
-                        # IMPORTANT : Rembobiner le fichier avant lecture pour le docx
-                        img_file.seek(0)
-                        
-                        # Ajout de l'image (largeur fixée à ~14cm pour tenir dans la page)
-                        doc.add_picture(img_file, width=Inches(5.5))
-                        
-                        # Légende image (Nom du fichier)
-                        original_name = img_file.name
-                        lbl = doc.add_paragraph(f"Image: {original_name}")
-                        lbl.style = "Caption"
-                        
-                        # Rembobiner après usage pour d'autres exports éventuels
-                        img_file.seek(0)
-                        
-                    except Exception as e:
-                        doc.add_paragraph(f"[Erreur lors de l'intégration de l'image : {e}]", style="Intense Quote")
+            cleaned_data.append(clean_phase)
+        
+        submission_id = st.session_state.get('submission_id', str(uuid.uuid4()))
+        final_document = {
+            "project_intitule": project_data.get('Intitulé', 'N/A'),
+            "project_details": project_data,
+            "submission_id": submission_id,
+            "start_date": st.session_state.get('form_start_time', datetime.now()),
+            "submission_date": datetime.now(),
+            "status": "Completed",
+            "collected_phases": cleaned_data
+        }
+        
+        if isinstance(db, dict):
+            # Simulation DB (ne fait rien d'autre que l'affichage console)
+            print(f"Simulating Firestore save: {submission_id} with data...")
             
-            elif hasattr(val, 'read'):
-                # Fichier unique
-                doc.add_paragraph(f"[Fichier joint : {val.name}]")
-            else:
-                # Texte ou Nombre
-                if val is None or str(val) == "":
-                    doc.add_paragraph("Non renseigné", style="No Spacing")
-                else:
-                    doc.add_paragraph(str(val), style="No Spacing")
-            
-            # Petit espace après chaque question
-            doc.add_paragraph("") 
-
-    # Sauvegarde dans un buffer mémoire
-    docx_buffer = io.BytesIO()
-    doc.save(docx_buffer)
-    docx_buffer.seek(0)
-    return docx_buffer
-
-# --- GESTION DE L'ÉTAT (inchangée) ---
-def init_session_state():
-    defaults = {
-        'step': 'PROJECT_LOAD',
-        'project_data': None,
-        'collected_data': [],
-        'current_phase_temp': {},
-        'current_phase_name': None,
-        'iteration_id': str(uuid.uuid4()), 
-        'identification_completed': False,
-        'data_saved': False,
-        'id_rendering_ident': None,
-        'form_start_time': None,
-        'submission_id': None,
-        'show_comment_on_error': False
-    }
-    for key, value in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = value
-
-init_session_state()
-
-# --- LOGIQUE MÉTIER (inchangée) ---
-
-def check_condition(row, current_answers, collected_data):
-    try:
-        if int(row.get('Condition on', 0)) != 1: return True
-    except (ValueError, TypeError): return True
-
-    all_past_answers = {}
-    for phase_data in collected_data: all_past_answers.update(phase_data['answers'])
-    combined_answers = {**all_past_answers, **current_answers}
-    
-    condition_str = str(row.get('Condition value', '')).strip()
-    if not condition_str or "=" not in condition_str: return True
-
-    try:
-        target_id_str, expected_value_raw = condition_str.split('=', 1)
-        target_id = int(target_id_str.strip())
-        expected_value = expected_value_raw.strip().strip('"').strip("'")
-        user_answer = combined_answers.get(target_id)
-        if user_answer is not None:
-            return str(user_answer).lower() == str(expected_value).lower()
         else:
-            return False
-    except Exception: return True
+            doc_id_base = str(project_data.get('Intitulé', 'form')).replace(" ", "_").replace("/", "_")[:20]
+            doc_id = f"{doc_id_base}_{datetime.now().strftime('%Y%m%d_%H%M')}_{submission_id[:6]}"
+            # Sauvegarde réelle dans Firestore
+            db.collection('FormAnswers').document(doc_id).set(final_document)
+            
+        return True, submission_id 
+    except Exception as e:
+        return False, str(e)
 
-# -----------------------------------------------------------
-# --- FONCTION VALIDATION (Identique) ---
-# -----------------------------------------------------------
-COMMENT_ID = 100
-COMMENT_QUESTION = "Veuillez préciser pourquoi le nombre de photo partagé ne correspond pas au minimum attendu"
 
-def validate_section(df_questions, section_name, answers, collected_data):
-    missing = []
-    section_rows = df_questions[df_questions['section'] == section_name]
+# --- WIDGETS DE FORMULAIRE ---
+
+def render_question_widget(question, answers):
+    """Affiche le widget de formulaire approprié pour la question."""
+    q_id = int(question['id'])
+    q_text = question['question']
+    q_type = question['type']
     
-    comment_val = answers.get(COMMENT_ID)
-    has_justification = comment_val is not None and str(comment_val).strip() != ""
-    project_data = st.session_state.get('project_data', {})
-    
-    # Calcul des photos attendues
-    expected_total_base, detail_str = get_expected_photo_count(section_name.strip(), project_data)
-    expected_total = expected_total_base
-    
-    # Nombre de questions de type 'photo' dans cette section
-    photo_question_count = sum(
-        1 for _, row in section_rows.iterrows()
-        if str(row.get('type', '')).strip().lower() == 'photo' and check_condition(row, answers, collected_data)
-    )
-    
-    if expected_total is not None and expected_total > 0:
-        # Multiplie le nombre de bornes attendues par le nombre de questions photo visibles
-        expected_total = expected_total_base * photo_question_count
-        detail_str = (
-            f"{detail_str} | Questions photo visibles: {photo_question_count} "
-            f"-> Total ajusté: {expected_total}"
-        )
+    col1, col2 = st.columns([0.1, 0.9])
+    with col1:
+        st.write(f"**{q_id}**")
+    with col2:
+        st.markdown(q_text)
 
-    current_photo_count = 0
-    photo_questions_found = False
-    
-    for _, row in section_rows.iterrows():
-        q_type = str(row['type']).strip().lower()
-        if q_type == 'photo' and check_condition(row, answers, collected_data):
-            photo_questions_found = True
-            q_id = int(row['id'])
-            val = answers.get(q_id)
-            if isinstance(val, list):
-                current_photo_count += len(val)
-
-    # Condition de suffisance (si aucune photo n'est attendue, c'est suffisant)
-    is_count_sufficient = (
-        expected_total is None or expected_total <= 0 or 
-        (expected_total > 0 and current_photo_count >= expected_total)
-    )
-    
-    # 1. Validation des champs obligatoires
-    for _, row in section_rows.iterrows():
-        if int(row['id']) == COMMENT_ID: continue
-        if not check_condition(row, answers, collected_data): continue # Ne valide que les questions visibles
-        
-        is_mandatory = str(row['obligatoire']).strip().lower() == 'oui'
-        q_id = int(row['id'])
-        q_type = str(row['type']).strip().lower()
-        val = answers.get(q_id)
-        
-        if is_mandatory:
-            # Cas spécial : la question 'photo' est considérée comme validée si le nombre est suffisant OU s'il y a justification
-            if q_type == 'photo':
-                if is_count_sufficient or has_justification:
-                    continue
-                else:
-                    # Le manquant sera traité dans la partie 2 (is_photo_count_incorrect)
-                    pass
-
-            # Cas général des champs non-photos
-            if isinstance(val, list):
-                if not val: missing.append(f"Question {q_id} : {row['question']} (fichier(s) manquant(s))")
-            elif val is None or val == "" or (isinstance(val, (int, float)) and val == 0):
-                missing.append(f"Question {q_id} : {row['question']}")
-
-    # 2. Validation de l'écart photo/commentaire
-    is_photo_count_incorrect = False
-    if expected_total is not None and expected_total > 0:
-        if photo_questions_found and current_photo_count != expected_total:
-            is_photo_count_incorrect = True
-            error_message = (
-                f"⚠️ **Écart de Photos pour '{str(section_name)}'**.\n\n"
-                f"Attendu : **{str(expected_total)}** (calculé : {str(detail_str)}).\n"
-                f"Reçu : **{str(current_photo_count)}**.\n\n"
-                f"Le champ de commentaire doit être rempli."
-            )
-            if not has_justification:
-                # Ajout de l'erreur seulement s'il n'y a PAS de justification
-                missing.append(
-                    f"**Commentaire (ID {COMMENT_ID}) :** {COMMENT_QUESTION} "
-                    f"(requis en raison de l'écart de photo : Attendu {expected_total}, Reçu {current_photo_count}).\n\n"
-                    f"{error_message}"
-                )
-
-    # Nettoyage : si l'écart est corrigé ou n'existe pas, on retire le commentaire de la réponse
-    if not is_photo_count_incorrect and COMMENT_ID in answers:
-        del answers[COMMENT_ID]
-
-    return len(missing) == 0, missing
-
-validate_phase = validate_section
-validate_identification = validate_section
-
-# --- COMPOSANTS UI (inchangés) ---
-
-def render_question(row, answers, phase_name, key_suffix, loop_index):
-    q_id = int(row.get('id', 0))
-    is_dynamic_comment = q_id == COMMENT_ID
-    if is_dynamic_comment:
-        q_text = COMMENT_QUESTION
-        q_type = 'text' 
-        q_desc = "Ce champ est obligatoire si le nombre de photos n'est pas conforme."
-        q_mandatory = True 
-        q_options = []
-    else:
-        q_text = row['question']
-        q_type = str(row['type']).strip().lower()
-        q_desc = row['Description']
-        q_mandatory = str(row['obligatoire']).lower() == 'oui'
-        q_options = str(row['options']).split(',') if row['options'] else []
-        
-    q_text = str(q_text).strip()
-    q_desc = str(q_desc).strip()
-    label_html = f"<strong>{q_id}. {q_text}</strong>" + (' <span class="mandatory">*</span>' if q_mandatory else "")
-    widget_key = f"q_{q_id}_{phase_name}_{key_suffix}_{loop_index}"
-    current_val = answers.get(q_id)
-    val = current_val
-
-    st.markdown(f'<div class="question-card"><div>{label_html}</div>', unsafe_allow_html=True)
-    if q_desc: st.markdown(f'<div class="description">⚠️ {q_desc}</div>', unsafe_allow_html=True)
+    # Récupération de la valeur actuelle pour la persistance
+    current_value = answers.get(q_id, None)
 
     if q_type == 'text':
-        if is_dynamic_comment:
-             val = st.text_area("Justification de l'écart", value=current_val if current_val else "", key=widget_key, label_visibility="collapsed")
-        else:
-             val = st.text_input("Réponse", value=current_val if current_val else "", key=widget_key, label_visibility="collapsed")
-
-    elif q_type == 'select':
-        clean_opts = [opt.strip() for opt in q_options]
-        if "" not in clean_opts: clean_opts.insert(0, "")
-        idx = clean_opts.index(current_val) if current_val in clean_opts else 0
-        val = st.selectbox("Sélection", clean_opts, index=idx, key=widget_key, label_visibility="collapsed")
-    
+        answers[q_id] = st.text_input("Réponse", value=current_value if current_value is not None else "", key=f"q_{q_id}")
     elif q_type == 'number':
-        if q_id == 9:
-            default_val = int(float(current_val)) if current_val is not None and str(current_val).replace('.', '', 1).isdigit() else 0
-            val = st.number_input("Nombre (entier)", value=default_val, step=1, format="%d", key=widget_key, label_visibility="collapsed")
-        else:
-            default_val = float(current_val) if current_val and str(current_val).replace('.', '', 1).isdigit() else 0.0
-            val = st.number_input("Nombre", value=default_val, key=widget_key, label_visibility="collapsed")
-    
+        # Streamlit retourne float si non spécifié
+        answers[q_id] = st.number_input("Valeur", value=current_value if current_value is not None else None, key=f"q_{q_id}")
+    elif q_type == 'select':
+        options = [o.strip() for o in question['options'].split(';') if o.strip()]
+        # Ajout d'une option vide si l'utilisateur n'a rien sélectionné précédemment
+        options_with_placeholder = ["Choisir une option..."] + options
+        
+        # Trouver l'index de la valeur courante (sauf si c'est None)
+        default_index = 0
+        if current_value is not None and current_value in options_with_placeholder:
+            default_index = options_with_placeholder.index(current_value)
+            
+        selected_option = st.selectbox("Option", options_with_placeholder, index=default_index, key=f"q_{q_id}")
+        answers[q_id] = selected_option if selected_option != "Choisir une option..." else None
+        
     elif q_type == 'photo':
-        expected, details = get_expected_photo_count(phase_name.strip(), st.session_state.get('project_data'))
-        if expected is not None and expected > 0:
-            st.info(f"📸 **Photos :** Il est attendu **{expected}** photos pour cette section (Base calculée : {details}).")
-            st.divider()
+        nb_photos = question.get('nb_photos_attendues')
+        try:
+             nb_photos = int(nb_photos)
+        except (ValueError, TypeError):
+             nb_photos = 1 # Default
 
-        val = st.file_uploader("Images", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True, key=widget_key, label_visibility="collapsed")
         
-        if val:
-            file_names = ", ".join([f.name for f in val])
-            st.success(f"Nombre d'images chargées : {len(val)} ({file_names})")
-        elif current_val and isinstance(current_val, list) and current_val:
-            names = ", ".join([getattr(f, 'name', 'Fichier') for f in current_val])
-            st.info(f"Fichiers conservés : {len(current_val)} ({names})")
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    if val is not None and (not is_dynamic_comment or val.strip() != ""): answers[q_id] = val 
-    elif current_val is not None and not is_dynamic_comment: answers[q_id] = current_val
-    elif is_dynamic_comment and (val is None or val.strip() == ""):
-        if q_id in answers: del answers[q_id]
-
-# --- FLUX PRINCIPAL ---
-
-st.markdown('<div class="main-header"><h1>📝Formulaire Chantier </h1></div>', unsafe_allow_html=True)
-
-if st.session_state['step'] == 'PROJECT_LOAD':
-    st.info("Tentative de chargement de la structure des formulaires...")
-    with st.spinner("Chargement en cours..."):
-        df_struct = load_form_structure_from_firestore()
-        df_site = load_site_data_from_firestore()
+        # Le st.file_uploader retourne une liste d'objets UploadedFile (ou None/vide)
+        # On ne peut PAS le pré-remplir avec les bytes stockés.
+        # On affiche les photos déjà stockées si elles existent.
         
-        if df_struct is not None and df_site is not None:
-            st.session_state['df_struct'] = df_struct
-            st.session_state['df_site'] = df_site
-            st.session_state['step'] = 'PROJECT'
-            st.rerun()
+        # Détection des photos stockées (bytes)
+        stored_files = answers.get(q_id, [])
+        is_stored = stored_files and isinstance(stored_files, list) and isinstance(stored_files[0], dict) and 'content' in stored_files[0]
+        
+        if is_stored:
+            st.caption(f"**Fichiers déjà enregistrés ({len(stored_files)}) :**")
+            cols = st.columns(min(len(stored_files), 4))
+            for idx, file_data in enumerate(stored_files):
+                if file_data['content'] and file_data['type'].startswith('image/'):
+                    try:
+                        # Afficher la miniature
+                        cols[idx % 4].image(io.BytesIO(file_data['content']), caption=file_data['name'], width=100)
+                    except Exception:
+                        cols[idx % 4].write(f"[Photo {file_data['name']}]")
+                else:
+                    cols[idx % 4].write(f"[Fichier {file_data['name']}]")
+
+        # Widget d'upload (retourne toujours une nouvelle liste d'UploadedFile)
+        uploaded_files = st.file_uploader(
+            f"Veuillez charger {nb_photos} photo(s) [Format: {question.get('format', 'jpg, png')}]",
+            type=["jpg", "jpeg", "png", "webp"],
+            accept_multiple_files=True,
+            key=f"q_{q_id}_upload"
+        )
+        
+        # MÀJ de l'état temporaire: 
+        if uploaded_files:
+            # Si de nouveaux fichiers sont uploadés, on utilise les UploadedFile pour la validation immédiate
+            answers[q_id] = uploaded_files
+        elif is_stored:
+            # Si rien n'a été uploadé et qu'il y a des fichiers stockés, on garde les stockés (bytes)
+            answers[q_id] = stored_files
         else:
-            st.error("Impossible de charger les données. Vérifiez votre connexion et les secrets Firebase.")
-            if st.button("Réessayer le chargement"):
-                load_form_structure_from_firestore.clear() 
-                load_site_data_from_firestore.clear() 
-                st.session_state['step'] = 'PROJECT_LOAD'
-                st.rerun()
+            answers[q_id] = [] # Assure que la valeur est une liste vide si rien
 
-elif st.session_state['step'] == 'PROJECT':
-    df_site = st.session_state['df_site']
-    st.markdown("### 🏗️ Sélection du Chantier")
-    
-    if 'Intitulé' not in df_site.columns:
-        st.error("Colonne 'Intitulé' manquante dans les données 'Sites'.")
-    else:
-        search_term = st.text_input("Rechercher un projet (Veuillez renseigner au minimum 3 caractères pour le nom de la ville)", key="project_search_input").strip()
-        filtered_projects = []
-        selected_proj = None
-        
-        if len(search_term) >= 3:
-            mask = df_site['Intitulé'].str.contains(search_term, case=False, na=False)
-            filtered_projects_df = df_site[mask]
-            filtered_projects = [""] + filtered_projects_df['Intitulé'].dropna().unique().tolist()
-            if filtered_projects:
-                selected_proj = st.selectbox("Résultats de la recherche", filtered_projects)
-            else:
-                st.warning(f"Aucun projet trouvé pour **'{search_term}'**.")
-        elif len(search_term) > 0 and len(search_term) < 3:
-            st.info("Veuillez entrer au moins **3 caractères** pour lancer la recherche.")
-        
-        if selected_proj:
-            row = df_site[df_site['Intitulé'] == selected_proj].iloc[0]
-            st.info(f"Projet sélectionné : **{selected_proj}**")
-            if st.button("✅ Démarrer l'identification"):
-                st.session_state['project_data'] = row.to_dict()
-                st.session_state['form_start_time'] = datetime.now() 
-                st.session_state['submission_id'] = str(uuid.uuid4())
-                st.session_state['step'] = 'IDENTIFICATION'
-                st.session_state['current_phase_temp'] = {}
-                st.session_state['iteration_id'] = str(uuid.uuid4())
-                st.session_state['show_comment_on_error'] = False
-                st.rerun()
-
-elif st.session_state['step'] == 'IDENTIFICATION':
-    df = st.session_state['df_struct']
-    ID_SECTION_NAME = df['section'].iloc[0]
-    st.markdown(f"### 👤 Étape unique : {ID_SECTION_NAME}")
-    identification_questions = df[df['section'] == ID_SECTION_NAME]
-    if st.session_state['id_rendering_ident'] is None: st.session_state['id_rendering_ident'] = str(uuid.uuid4())
-    rendering_id = st.session_state['id_rendering_ident']
-    
-    for idx, (index, row) in enumerate(identification_questions.iterrows()):
-        if check_condition(row, st.session_state['current_phase_temp'], st.session_state['collected_data']):
-            render_question(row, st.session_state['current_phase_temp'], ID_SECTION_NAME, rendering_id, idx)
-            
     st.markdown("---")
-    if st.button("✅ Valider l'identification"):
-        is_valid, errors = validate_identification(df, ID_SECTION_NAME, st.session_state['current_phase_temp'], st.session_state['collected_data'])
-        if is_valid:
-            id_entry = {"phase_name": ID_SECTION_NAME, "answers": st.session_state['current_phase_temp'].copy()}
-            st.session_state['collected_data'].append(id_entry)
-            st.session_state['identification_completed'] = True
-            st.session_state['step'] = 'LOOP_DECISION'
-            st.session_state['current_phase_temp'] = {}
-            st.session_state['show_comment_on_error'] = False
-            st.success("Identification validée.")
+
+
+# --- FLUX PRINCIPAL DE L'APPLICATION ---
+
+def main_app():
+    """Fonction principale de l'application."""
+    
+    # 0. Initialisation de l'état de session
+    if 'df_struct' not in st.session_state:
+        init_session_state(None)
+    
+    # --- HEADER ---
+    st.markdown("<div class='main-header'><h1>Formulaire d'Audit Dynamique</h1></div>", unsafe_allow_html=True)
+
+    # --- ÉTAPE 1: UPLOAD EXCEL ---
+    if st.session_state['step'] == 'UPLOAD_EXCEL':
+        st.subheader("Chargement du Fichier de Structure")
+        st.info("Veuillez charger le fichier Excel contenant les phases, questions, types de réponse et nombre de photos attendues.")
+        
+        uploaded_file = st.file_uploader("Charger le fichier Excel", type=["xlsx", "xls"])
+        
+        if uploaded_file is not None:
+            load_excel_structure(uploaded_file)
             st.rerun()
-        else:
-            st.markdown('<div class="error-box"><b>⚠️ Erreur de validation :</b><br>' + '<br>'.join([f"- {e}" for e in errors]) + '</div>', unsafe_allow_html=True)
 
-elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
-    project_intitule = st.session_state['project_data'].get('Intitulé', 'Projet Inconnu')
-    with st.expander(f"📍 Projet : {project_intitule}", expanded=False):
-        project_details = st.session_state['project_data']
-        st.markdown(":orange-badge[**Détails du Projet sélectionné :**]")
+    # --- ÉTAPE 2: IDENTIFICATION DU PROJET ---
+    elif st.session_state['step'] == 'IDENTIFICATION':
+        st.subheader(f"1. {ID_SECTION_NAME}")
+        st.markdown("<div class='phase-block'>", unsafe_allow_html=True)
         
-        with st.container(border=True):
-            st.markdown("**Informations générales**")
-            cols1 = st.columns([1, 1, 1]) 
-            fields_l1 = DISPLAY_GROUPS[0]
-            for i, field_key in enumerate(fields_l1):
-                renamed_key = PROJECT_RENAME_MAP.get(field_key, field_key)
-                value = project_details.get(field_key, 'N/A')
-                with cols1[i]: st.markdown(f"**{renamed_key}** : {value}")
-                    
-        with st.container(border=True):
-            st.markdown("**Points de charge Standard**")
-            cols2 = st.columns([1, 1, 1])
-            fields_l2 = DISPLAY_GROUPS[1]
-            for i, field_key in enumerate(fields_l2):
-                renamed_key = PROJECT_RENAME_MAP.get(field_key, field_key)
-                value = project_details.get(field_key, 'N/A')
-                with cols2[i]: st.markdown(f"**{renamed_key}** : {value}")
-
-        with st.container(border=True):
-            st.markdown("**Points de charge Pré-équipés**")
-            cols3 = st.columns([1, 1, 1])
-            fields_l3 = DISPLAY_GROUPS[2]
-            for i, field_key in enumerate(fields_l3):
-                renamed_key = PROJECT_RENAME_MAP.get(field_key, field_key)
-                value = project_details.get(field_key, 'N/A')
-                with cols3[i]: st.markdown(f"**{renamed_key}** : {value}")
+        questions = get_phase_questions(st.session_state['df_struct'], ID_SECTION_NAME)
         
-        st.write(":orange-badge[**Phases et Identification déjà complétées :**]")
-        for idx, item in enumerate(st.session_state['collected_data']):
-            st.write(f"• **{item['phase_name']}** : {len(item['answers'])} réponses")
+        # Réinitialisation pour les champs d'identification s'ils ne sont pas déjà remplis
+        if not st.session_state['current_phase_temp']:
+            # Initialiser avec des valeurs par défaut si nécessaire
+            st.session_state['current_phase_temp'] = {3: datetime.now().date()}
+        
+        for q in questions:
+            q_id = int(q['id'])
+            default_value = st.session_state['current_phase_temp'].get(q_id)
+            
+            if q_id == 1:
+                st.session_state['current_phase_temp'][q_id] = st.text_input("Intitulé du projet (Obligatoire)", 
+                                                                             value=default_value if default_value is not None else "", 
+                                                                             key=f"id_{q_id}")
+            elif q_id == 2:
+                st.session_state['current_phase_temp'][q_id] = st.text_input("Site / Emplacement (Obligatoire)", 
+                                                                             value=default_value if default_value is not None else "", 
+                                                                             key=f"id_{q_id}")
+            elif q_id == 3:
+                # Convertit la valeur stockée (qui peut être une date ou une chaîne) en objet date pour st.date_input
+                date_val = datetime.now().date()
+                if default_value is not None:
+                     if isinstance(default_value, datetime):
+                         date_val = default_value.date()
+                     elif isinstance(default_value, str):
+                         try:
+                             date_val = pd.to_datetime(default_value, errors='coerce').date()
+                         except Exception:
+                             pass # Garder la date du jour si le parsing échoue
 
-    if st.session_state['step'] == 'LOOP_DECISION':
-        st.markdown("### 🔄 Gestion des Phases")
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("➕ Ajouter une phase"):
+                st.session_state['current_phase_temp'][q_id] = st.date_input("Date du jour (Obligatoire)", 
+                                                                             value=date_val, 
+                                                                             key=f"id_{q_id}")
+            else:
+                 # Autres questions d'identification (texte libre par défaut)
+                 st.session_state['current_phase_temp'][q_id] = st.text_area(q['question'], 
+                                                                              value=default_value if default_value is not None else "", 
+                                                                              key=f"id_{q_id}")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        if st.button("✅ Valider l'identification"):
+            # L'identification ne contient pas de photos, mais on appelle process_files_for_storage
+            # pour assurer l'uniformité du format stocké (bien qu'il n'y ait pas de fichiers ici).
+            
+            # Note: On doit d'abord valider, puis stocker.
+            is_valid, errors = validate_identification(st.session_state['df_struct'], ID_SECTION_NAME, st.session_state['current_phase_temp'], st.session_state['collected_data'])
+            if is_valid:
+                # Stocker les réponses (qui ne contiennent que du texte/date ici)
+                clean_answers = process_files_for_storage(st.session_state['current_phase_temp'])
+                id_entry = {"phase_name": ID_SECTION_NAME, "answers": clean_answers}
+                
+                # S'assurer que l'identification est la première phase
+                if st.session_state['collected_data'] and st.session_state['collected_data'][0]['phase_name'] == ID_SECTION_NAME:
+                    st.session_state['collected_data'][0] = id_entry
+                else:
+                    st.session_state['collected_data'].insert(0, id_entry)
+
+                st.session_state['identification_completed'] = True
+                st.session_state['step'] = 'LOOP_DECISION'
+                st.session_state['current_phase_temp'] = {}
+                st.session_state['show_comment_on_error'] = False
+                st.success("Identification validée.")
+                st.rerun()
+
+    # --- ÉTAPE 3: DÉCISION DE BOUCLE (Passer à la phase suivante ou Fin) ---
+    elif st.session_state['step'] == 'LOOP_DECISION':
+        
+        # Récupère l'index de la prochaine phase à remplir
+        current_idx = st.session_state['current_phase_index']
+        phases = st.session_state['all_phases']
+        
+        st.subheader("Progression du Formulaire")
+        # Calcul de la progression en incluant l'identification (+1)
+        total_steps = len(phases) + 1
+        current_step = current_idx + 1
+        st.progress(current_step / total_steps)
+        st.info(f"Phases complétées : {current_idx} / {len(phases)}")
+
+        if current_idx < len(phases):
+            # Prochaine phase
+            next_phase_name = phases[current_idx]
+            st.success(f"Prêt pour la phase suivante : **{next_phase_name}**")
+            
+            if st.button(f"Commencer la phase {current_idx + 1} / {len(phases)}"):
                 st.session_state['step'] = 'FILL_PHASE'
-                st.session_state['current_phase_temp'] = {}
-                st.session_state['current_phase_name'] = None
-                st.session_state['iteration_id'] = str(uuid.uuid4())
+                st.session_state['current_phase_temp'] = {} # Réinitialisation de l'état temporaire
                 st.session_state['show_comment_on_error'] = False
                 st.rerun()
-        with col2:
-            if st.button("🏁 Terminer l'audit"):
-                st.session_state['step'] = 'FINISHED'
-                st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    elif st.session_state['step'] == 'FILL_PHASE':
-        df = st.session_state['df_struct']
-        ID_SECTION_NAME = df['section'].iloc[0]
-        ID_SECTION_CLEAN = str(ID_SECTION_NAME).strip().lower()
-        SECTIONS_TO_EXCLUDE_CLEAN = {ID_SECTION_CLEAN, "phase"}
-        all_sections_raw = df['section'].unique().tolist()
-        available_phases = []
-        for sec in all_sections_raw:
-            if pd.isna(sec) or not sec or str(sec).strip().lower() in SECTIONS_TO_EXCLUDE_CLEAN: continue
-            available_phases.append(sec)
-        
-        if not st.session_state['current_phase_name']:
-              st.markdown("### 📑 Sélection de la phase")
-              phase_choice = st.selectbox("Quelle phase ?", [""] + available_phases)
-              if phase_choice:
-                  st.session_state['current_phase_name'] = phase_choice
-                  st.session_state['show_comment_on_error'] = False 
-                  st.rerun()
-              if st.button("⬅️ Retour"):
-                  st.session_state['step'] = 'LOOP_DECISION'
-                  st.session_state['current_phase_temp'] = {}
-                  st.session_state['show_comment_on_error'] = False
-                  st.rerun()
         else:
-            current_phase = st.session_state['current_phase_name']
-            st.markdown(f"### 📝 {current_phase}")
-            if st.button("🔄 Changer de phase"):
-                st.session_state['current_phase_name'] = None
-                st.session_state['current_phase_temp'] = {}
-                st.session_state['iteration_id'] = str(uuid.uuid4())
-                st.session_state['show_comment_on_error'] = False 
+            # Fin du formulaire
+            st.success("Toutes les phases ont été complétées ! 🎉")
+            if st.button("Passer à l'exportation finale"):
+                st.session_state['step'] = 'EXPORT'
                 st.rerun()
-            st.divider()
-            
-            section_questions = df[df['section'] == current_phase]
-            visible_count = 0
-            for idx, (index, row) in enumerate(section_questions.iterrows()):
-                if int(row.get('id', 0)) == COMMENT_ID: continue
-                if check_condition(row, st.session_state['current_phase_temp'], st.session_state['collected_data']):
-                    render_question(row, st.session_state['current_phase_temp'], current_phase, st.session_state['iteration_id'], idx)
-                    visible_count += 1
-            
-            if visible_count == 0 and not st.session_state.get('show_comment_on_error', False):
-                st.warning("Aucune question visible.")
 
-            if st.session_state.get('show_comment_on_error', False):
-                st.markdown("---")
-                st.markdown("### ✍️ Justification de l'Écart")
-                comment_row = pd.Series({'id': COMMENT_ID})
-                render_question(comment_row, st.session_state['current_phase_temp'], current_phase, st.session_state['iteration_id'], 999) 
-            
-            st.markdown("---")
-            c1, c2 = st.columns([1, 2])
-            with c1:
-                if st.button("❌ Annuler"):
-                    st.session_state['step'] = 'LOOP_DECISION'
-                    st.session_state['show_comment_on_error'] = False
-                    st.rerun()
-            with c2:
-                if st.button("💾 Valider la phase"):
-                    st.session_state['show_comment_on_error'] = False 
-                    is_valid, errors = validate_phase(df, current_phase, st.session_state['current_phase_temp'], st.session_state['collected_data'])
-                    if is_valid:
-                        new_entry = {"phase_name": current_phase, "answers": st.session_state['current_phase_temp'].copy()}
-                        st.session_state['collected_data'].append(new_entry)
-                        st.success("Enregistré !")
-                        st.session_state['step'] = 'LOOP_DECISION'
-                        st.rerun()
+    # --- ÉTAPE 4: REMPLIR UNE PHASE ---
+    elif st.session_state['step'] == 'FILL_PHASE':
+        current_phase = st.session_state['all_phases'][st.session_state['current_phase_index']]
+        st.subheader(f"Phase {st.session_state['current_phase_index'] + 1} : {current_phase}")
+        
+        st.markdown("<div class='phase-block'>", unsafe_allow_html=True)
+
+        questions = get_phase_questions(st.session_state['df_struct'], current_phase)
+        
+        for q in questions:
+            render_question_widget(q, st.session_state['current_phase_temp'])
+
+        # Affichage du champ de commentaire d'écart si nécessaire (suite à un échec de validation)
+        if st.session_state['show_comment_on_error']:
+            st.error("Raison de l'écart de photos requise :")
+            # Assurez-vous que l'état temporaire existe pour Q100
+            default_comment = st.session_state['current_phase_temp'].get(100, "")
+            st.session_state['current_phase_temp'][100] = st.text_area(
+                "Commentaire d'écart (Obligatoire en cas de divergence de photos)",
+                value=default_comment,
+                key="q_100_comment_gap"
+            )
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        c1, c2, c3 = st.columns([1, 1, 1])
+        
+        with c1:
+            if st.button("⬅️ Retour"):
+                st.session_state['step'] = 'LOOP_DECISION'
+                st.session_state['show_comment_on_error'] = False
+                st.rerun()
+
+        with c2:
+            if st.button("💾 Valider la phase"):
+                # Sauvegarde temporaire des réponses avant validation pour la persistance du widget
+                temp_answers_copy = st.session_state['current_phase_temp'].copy()
+                
+                # Réinitialiser l'état d'erreur AVANT la validation (sera réactivé si validation échoue)
+                was_error_shown = st.session_state['show_comment_on_error']
+                st.session_state['show_comment_on_error'] = False 
+                
+                is_valid, errors = validate_phase(st.session_state['df_struct'], current_phase, temp_answers_copy, st.session_state['collected_data'])
+                
+                if is_valid:
+                    # --- CRUCIAL : CONVERSION DES FICHIERS EN BYTES AVANT DE QUITTER L'ÉTAPE ---
+                    clean_answers = process_files_for_storage(temp_answers_copy)
+                    # -----------------------------------------------------------------------
+
+                    new_entry = {"phase_name": current_phase, "answers": clean_answers}
+                    
+                    # Logique pour insérer la phase après l'identification ou mettre à jour si retour
+                    phase_index_in_collected = st.session_state['current_phase_index'] + 1 # +1 car l'ID est en index 0
+                    
+                    if len(st.session_state['collected_data']) > phase_index_in_collected:
+                         # Mise à jour (si l'utilisateur est revenu en arrière)
+                         st.session_state['collected_data'][phase_index_in_collected] = new_entry
                     else:
-                        is_photo_error = any(f"Commentaire (ID {COMMENT_ID})" in e for e in errors)
-                        if is_photo_error: st.session_state['show_comment_on_error'] = True
-                        html_errors = '<br>'.join([f"- {e}" for e in errors])
-                        st.markdown(f'<div class="error-box"><b>⚠️ Erreurs :</b><br>{html_errors}</div>', unsafe_allow_html=True)
-                        st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
+                         # Ajout (si c'est la première fois)
+                         st.session_state['collected_data'].append(new_entry)
 
-elif st.session_state['step'] == 'FINISHED':
-    st.markdown("## 🎉 Formulaire Terminé")
-    project_name = st.session_state['project_data'].get('Intitulé', 'Projet Inconnu')
-    st.write(f"Projet : **{project_name}**")
-    
-    # 1. SAUVEGARDE FIREBASE
-    if not st.session_state['data_saved']:
-        with st.spinner("Sauvegarde des réponses dans Firestore..."):
-            success, submission_id_returned = save_form_data(
-                st.session_state['collected_data'], 
-                st.session_state['project_data']
-            )
 
-            if success:
-                st.balloons()
-                st.success(f"Données textuelles sauvegardées sur Firestore ! (ID: {submission_id_returned})")
-                st.session_state['data_saved'] = True
-            else:
-                st.error(f"Erreur lors de la sauvegarde : {submission_id_returned}")
-                if st.button("Réessayer la sauvegarde"):
+                    st.success("Enregistré !")
+                    st.session_state['current_phase_index'] += 1
+                    st.session_state['step'] = 'LOOP_DECISION'
                     st.rerun()
-    else:
-        st.info("Les données ont déjà été sauvegardées sur Firestore.")
+                
+                # Si non valide, 'show_comment_on_error' est mis à True dans validate_phase. 
+                # On rerender pour afficher le champ de commentaire.
+                elif not is_valid and was_error_shown != st.session_state['show_comment_on_error']:
+                    # Re-afficher la phase pour montrer le champ de commentaire d'écart
+                    st.rerun()
 
-    st.markdown("---")
-    
-    if st.session_state['data_saved']:
-        # Préparation des données pour le téléchargement et l'e-mail
-        csv_data = create_csv_export(st.session_state['collected_data'], st.session_state['df_struct'])
+
+    # --- ÉTAPE 5: EXPORTATION FINALE ---
+    elif st.session_state['step'] == 'EXPORT':
+        st.subheader("5. Exportation du Rapport Final")
+        project_name = st.session_state['project_data'].get('Intitulé', 'Projet Inconnu')
+        
+        # 1. Sauvegarde dans Firestore (sans les bytes d'images)
+        success, result_id = save_form_data(st.session_state['collected_data'], st.session_state['project_data'])
+        if success:
+            st.success(f"Les données textuelles et de structure ont été sauvegardées dans la base de données. ID Submission : {result_id}")
+        else:
+            st.error(f"Erreur lors de la sauvegarde Firestore: {result_id}")
+            
+        st.markdown("---")
+        st.markdown("### 💾 1. Télécharger les Fichiers")
+
+        # 2. Génération du DOCX (inclut les images)
+        docx_buffer = create_word_export(
+            st.session_state['collected_data'], 
+            st.session_state['df_struct'], 
+            st.session_state['project_data']
+        )
+        file_name_word = f"Rapport_Audit_{project_name.replace(' ', '_').replace('/', '')}.docx"
+        st.download_button(
+            label="Télécharger le rapport Word (.docx)",
+            data=docx_buffer.getvalue(),
+            file_name=file_name_word,
+            mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            help="Ce fichier inclut toutes les réponses et les images."
+        )
+
+        # 3. Génération du ZIP (inclut Word, CSV et les images brutes)
         zip_buffer = create_zip_export(st.session_state['collected_data'])
+        file_name_zip = f"Export_Complet_{project_name.replace(' ', '_').replace('/', '')}.zip"
+        st.download_button(
+            label="Télécharger l'export complet (.zip)",
+            data=zip_buffer.getvalue(),
+            file_name=file_name_zip,
+            mime='application/zip',
+            help="Contient le Word, le CSV des données brutes, et les dossiers de photos originales."
+        )
         
-        # --- AJOUT WORD: Génération du buffer ---
-        word_buffer = create_word_export(st.session_state['collected_data'], st.session_state['df_struct'], st.session_state['project_data'])
-        
-        date_str = datetime.now().strftime('%Y%m%d_%H%M')
-        
-        # --- 2. TÉLÉCHARGEMENT DIRECT (MODIFIÉ AVEC WORD) ---
-        st.markdown("### 📥 1. Télécharger les pièces jointes")
-        st.warning("Veuillez télécharger ces fichiers pour pouvoir les joindre manuellement à l'e-mail.")
-        
-        # Colonnes ajustées pour inclure Word
-        col_word, col_csv, col_zip = st.columns(3)
-        
-        file_name_word = f"Rapport_{project_name}_{date_str}.docx"
-        with col_word:
-            st.download_button(
-                label="📘 Rapport Word",
-                data=word_buffer,
-                file_name=file_name_word,
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            )
+        # 4. Génération du CSV (sans les images)
+        csv_string = create_csv_export(st.session_state['collected_data'], st.session_state['df_struct'])
+        file_name_csv = f"Donnees_Brutes_{project_name.replace(' ', '_').replace('/', '')}.csv"
+        st.download_button(
+            label="Télécharger les données brutes (.csv)",
+            data=csv_string,
+            file_name=file_name_csv,
+            mime='text/csv',
+            help="Contient les questions et réponses dans un format tabulaire."
+        )
 
-        file_name_csv = f"Export_{project_name}_{date_str}.csv"
-        with col_csv:
-            st.download_button(label="📄 Télécharger CSV", data=csv_data, file_name=file_name_csv, mime='text/csv')
-
-        if zip_buffer:
-            file_name_zip = f"Photos_{project_name}_{date_str}.zip"
-            with col_zip:
-                # Assurez-vous que le buffer est bien à 0 avant de télécharger
-                zip_buffer.seek(0) 
-                st.download_button(label="📸 Télécharger ZIP Photos", data=zip_buffer.getvalue(), file_name=file_name_zip, mime='application/zip')
-    
-        # --- 3. OUVERTURE DE L'APPLICATION NATIVE (MAILTO) ---
+        # --- 5. OUVERTURE DE L'APPLICATION NATIVE (MAILTO) ---
         st.markdown("---")
         st.markdown("### 📧 2. Partager par Email")
         
-        # Construction du mailto:
         subject = f"Rapport Audit : {project_name}"
         body = (
-            f"Bonjour,\n\n"
-            f"Veuillez trouver ci-joint le rapport d'audit pour le projet {project_name}.\n"
-            f"(N'oubliez pas d'ajouter les fichiers Word, CSV et ZIP que vous avez téléchargés précédemment).\n\n"
+            f"Bonjour,\\n\\n"
+            f"Veuillez trouver ci-joint le rapport d'audit pour le projet {project_name}.\\n"
+            f"(N'oubliez pas d'ajouter les fichiers Word, CSV et ZIP que vous avez téléchargés précédemment).\\n\\n"
             f"Cordialement."
         )
         
-        # Encodage de l'URL pour gérer les espaces et caractères spéciaux
         mailto_link = (
             f"mailto:?" 
             f"subject={urllib.parse.quote(subject)}" 
             f"&body={urllib.parse.quote(body)}"
         )
         
-        # Affichage du bouton mailto en utilisant du markdown HTML pour le lien
         st.markdown(
             f'<a href="{mailto_link}" target="_blank" style="text-decoration: none;">'
             f'<button style="background-color: #E9630C; color: white; border: none; padding: 10px 20px; border-radius: 8px; width: 100%; font-size: 16px; cursor: pointer;">'
-            f'Ouvrir l\'application Email'
-            f'</button>'
-            f'</a>',
+            f'Ouvrir l\'Email pour Partager'
+            f'</button></a>',
             unsafe_allow_html=True
         )
 
-    st.markdown("---")
-    if st.button("⬅️ Recommencer l'audit"):
-        st.session_state.clear()
-        st.rerun()
+        st.markdown("---")
+        if st.button("🔄 Démarrer un nouveau formulaire"):
+            init_session_state(st.session_state['df_struct'])
+            st.session_state['step'] = 'UPLOAD_EXCEL'
+            st.rerun()
+
+# --- EXÉCUTION ---
+if __name__ == '__main__':
+    # Initialisation de l'état de session
+    init_session_state(st.session_state.get('df_struct'))
+    main_app()
