@@ -10,14 +10,6 @@ import zipfile
 import io
 import urllib.parse # Ajout pour l'encodage du lien mailto
 
-# --- AJOUT POUR WORD (Unique modification des imports) ---
-try:
-    from docx import Document
-    from docx.shared import Inches, Pt
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
-except ImportError:
-    st.error("La librairie 'python-docx' est manquante. Veuillez l'installer avec : pip install python-docx")
-
 # --- CONFIGURATION ET STYLE (inchangés) ---
 st.set_page_config(page_title="Formulaire Dynamique - Firestore", layout="centered")
 
@@ -93,7 +85,7 @@ def get_expected_photo_count(section_name, project_data):
     detail_str = " + ".join(details)
     return total_expected, detail_str
 
-# --- INITIALISATION FIREBASE SÉCURISÉE (inchangée - reprise exacte de votre fichier) ---
+# --- INITIALISATION FIREBASE SÉCURISÉE (inchangée) ---
 def initialize_firebase():
     if not firebase_admin._apps:
         try:
@@ -299,90 +291,6 @@ def create_zip_export(collected_data):
         zip_file.writestr("info.txt", info_txt)
                     
     return zip_buffer
-
-# --- NOUVELLE FONCTION: EXPORT WORD ---
-def create_word_export(collected_data, df_struct, project_data):
-    """
-    Génère un fichier Word (.docx) contenant les réponses et les images intégrées.
-    """
-    doc = Document()
-    
-    # Titre du document
-    project_name = project_data.get('Intitulé', 'Projet Inconnu')
-    title = doc.add_heading(f"Rapport de Chantier : {project_name}", 0)
-    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    
-    # Métadonnées
-    doc.add_paragraph(f"Date de génération : {datetime.now().strftime('%d/%m/%Y %H:%M')}")
-    doc.add_paragraph(f"ID Submission : {st.session_state.get('submission_id', 'N/A')}")
-    doc.add_paragraph("---")
-
-    for phase in collected_data:
-        phase_name = phase['phase_name']
-        
-        # Titre de la phase (Section)
-        doc.add_heading(phase_name, level=1)
-        
-        answers = phase['answers']
-        
-        for q_id, val in answers.items():
-            # Récupération du texte de la question
-            if int(q_id) == 100:
-                q_text = "Commentaire sur l'écart de photos"
-            else:
-                q_row = df_struct[df_struct['id'] == int(q_id)]
-                if not q_row.empty:
-                    q_text = q_row.iloc[0]['question']
-                else:
-                    q_text = f"Question ID {q_id}"
-
-            # Affichage de la question
-            p_q = doc.add_paragraph()
-            run_q = p_q.add_run(f"Q{q_id}. {q_text}")
-            run_q.bold = True
-            
-            # Affichage de la réponse
-            if isinstance(val, list) and val and hasattr(val[0], 'read'):
-                # C'est une liste de photos
-                doc.add_paragraph("Photos jointes :")
-                
-                for img_file in val:
-                    try:
-                        # IMPORTANT : Rembobiner le fichier avant lecture pour le docx
-                        img_file.seek(0)
-                        
-                        # Ajout de l'image (largeur fixée à ~14cm pour tenir dans la page)
-                        doc.add_picture(img_file, width=Inches(5.5))
-                        
-                        # Légende image (Nom du fichier)
-                        original_name = img_file.name
-                        lbl = doc.add_paragraph(f"Image: {original_name}")
-                        lbl.style = "Caption"
-                        
-                        # Rembobiner après usage pour d'autres exports éventuels
-                        img_file.seek(0)
-                        
-                    except Exception as e:
-                        doc.add_paragraph(f"[Erreur lors de l'intégration de l'image : {e}]", style="Intense Quote")
-            
-            elif hasattr(val, 'read'):
-                # Fichier unique
-                doc.add_paragraph(f"[Fichier joint : {val.name}]")
-            else:
-                # Texte ou Nombre
-                if val is None or str(val) == "":
-                    doc.add_paragraph("Non renseigné", style="No Spacing")
-                else:
-                    doc.add_paragraph(str(val), style="No Spacing")
-            
-            # Petit espace après chaque question
-            doc.add_paragraph("") 
-
-    # Sauvegarde dans un buffer mémoire
-    docx_buffer = io.BytesIO()
-    doc.save(docx_buffer)
-    docx_buffer.seek(0)
-    return docx_buffer
 
 # --- GESTION DE L'ÉTAT (inchangée) ---
 def init_session_state():
@@ -849,28 +757,14 @@ elif st.session_state['step'] == 'FINISHED':
         # Préparation des données pour le téléchargement et l'e-mail
         csv_data = create_csv_export(st.session_state['collected_data'], st.session_state['df_struct'])
         zip_buffer = create_zip_export(st.session_state['collected_data'])
-        
-        # --- AJOUT WORD: Génération du buffer ---
-        word_buffer = create_word_export(st.session_state['collected_data'], st.session_state['df_struct'], st.session_state['project_data'])
-        
         date_str = datetime.now().strftime('%Y%m%d_%H%M')
         
-        # --- 2. TÉLÉCHARGEMENT DIRECT (MODIFIÉ AVEC WORD) ---
+        # --- 2. TÉLÉCHARGEMENT DIRECT ---
         st.markdown("### 📥 1. Télécharger les pièces jointes")
-        st.warning("Veuillez télécharger ces fichiers pour pouvoir les joindre manuellement à l'e-mail.")
+        st.warning("Veuillez télécharger ces deux fichiers pour pouvoir les joindre manuellement à l'e-mail.")
         
-        # Colonnes ajustées pour inclure Word
-        col_word, col_csv, col_zip = st.columns(3)
+        col_csv, col_zip = st.columns(2)
         
-        file_name_word = f"Rapport_{project_name}_{date_str}.docx"
-        with col_word:
-            st.download_button(
-                label="📘 Rapport Word",
-                data=word_buffer,
-                file_name=file_name_word,
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            )
-
         file_name_csv = f"Export_{project_name}_{date_str}.csv"
         with col_csv:
             st.download_button(label="📄 Télécharger CSV", data=csv_data, file_name=file_name_csv, mime='text/csv')
@@ -891,7 +785,7 @@ elif st.session_state['step'] == 'FINISHED':
         body = (
             f"Bonjour,\n\n"
             f"Veuillez trouver ci-joint le rapport d'audit pour le projet {project_name}.\n"
-            f"(N'oubliez pas d'ajouter les fichiers Word, CSV et ZIP que vous avez téléchargés précédemment).\n\n"
+            f"(N'oubliez pas d'ajouter les fichiers CSV et ZIP que vous avez téléchargés précédemment).\n\n"
             f"Cordialement."
         )
         
