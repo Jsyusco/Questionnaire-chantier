@@ -9,12 +9,7 @@ import numpy as np
 import zipfile
 import io
 import urllib.parse
-# --- Imports SMTP restaurés ---
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.application import MIMEApplication
-from email import encoders
+import base64 # NOUVEAU: Import pour encoder les fichiers en Base64
 
 # --- CONFIGURATION ET STYLE (inchangés) ---
 st.set_page_config(page_title="Formulaire Dynamique - Firestore", layout="centered")
@@ -36,7 +31,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- LOGIQUE DE RENOMMAGE ET D'AFFICHAGE DU PROJET (inchangée) ---
+# --- LOGIQUE DE RENOMMAGE ET D'AFFICHAGE DU PROJET (inchangés) ---
 
 PROJECT_RENAME_MAP = {
     'Intitulé': 'Intitulé',
@@ -124,7 +119,7 @@ def initialize_firebase():
 
 db = initialize_firebase()
 
-# --- FONCTIONS DE CHARGEMENT ET SAUVEGARDE FIREBASE ---
+# --- FONCTIONS DE CHARGEMENT ET SAUVEGARDE FIREBASE (inchangées) ---
 
 @st.cache_data(ttl=3600)
 def load_form_structure_from_firestore():
@@ -174,7 +169,6 @@ def load_site_data_from_firestore():
 def save_form_data(collected_data, project_data):
     """
     Sauvegarde les données dans Firestore.
-    Pour les fichiers, on ne sauvegarde que les noms/métadonnées.
     """
     try:
         cleaned_data = []
@@ -219,7 +213,7 @@ def save_form_data(collected_data, project_data):
     except Exception as e:
         return False, str(e)
 
-# --- FONCTIONS EXPORT CSV ET ZIP ---
+# --- FONCTIONS EXPORT CSV ET ZIP (inchangées) ---
 
 def create_csv_export(collected_data, df_struct):
     rows = []
@@ -296,52 +290,24 @@ def create_zip_export(collected_data):
                     
     return zip_buffer
 
-# --- FONCTION D'ENVOI EMAIL (SMTP RESTAURÉE) ---
+# --- FONCTION D'AIDE POUR TÉLÉCHARGEMENT AUTOMATIQUE ---
+def get_base64_download_html(data, filename, mime_type):
+    """
+    Crée un lien HTML de téléchargement caché encodé en Base64.
+    """
+    if isinstance(data, str):
+        # Pour le CSV, on utilise l'encodage 'utf-8-sig' pour la compatibilité Excel
+        b64_data = base64.b64encode(data.encode('utf-8-sig')).decode()
+    else: # Bytes (ZIP)
+        b64_data = base64.b64encode(data).decode()
+    
+    href = f'data:{mime_type};charset=utf-8-sig;base64,{b64_data}'
+    # L'ID du lien est le nom de fichier (utilisé par JS)
+    return f'<a id="{filename}" href="{href}" download="{filename}" style="display: none;"></a>'
 
-def send_email_with_attachments(recipient_email, project_name, csv_content, zip_buffer):
-    """Envoie un email avec le CSV et le ZIP en pièces jointes via SMTP."""
-    try:
-        # Récupération des secrets SMTP
-        smtp_server = st.secrets["email"]["smtp_server"]
-        smtp_port = st.secrets["email"]["smtp_port"]
-        sender_email = st.secrets["email"]["sender_email"]
-        sender_password = st.secrets["email"]["sender_password"]
-        
-        msg = MIMEMultipart()
-        msg['From'] = sender_email
-        msg['To'] = recipient_email
-        msg['Subject'] = f"Rapport Audit : {project_name}"
-        
-        body = f"Bonjour,\n\nVeuillez trouver ci-joint le rapport d'audit pour le projet {project_name}.\n\nCe mail contient :\n1. Le fichier CSV des réponses.\n2. L'archive ZIP contenant les photos."
-        msg.attach(MIMEText(body, 'plain'))
-        
-        # Attachement CSV
-        # Assurez-vous que l'encodage est correct pour l'attachement
-        part_csv = MIMEApplication(csv_content.encode('utf-8-sig'), Name=f"Rapport_{project_name}.csv")
-        part_csv['Content-Disposition'] = f'attachment; filename="Rapport_{project_name}.csv"'
-        msg.attach(part_csv)
-        
-        # Attachement ZIP
-        if zip_buffer:
-            zip_buffer.seek(0)
-            part_zip = MIMEApplication(zip_buffer.read(), Name=f"Photos_{project_name}.zip")
-            part_zip['Content-Disposition'] = f'attachment; filename="Photos_{project_name}.zip"'
-            msg.attach(part_zip)
-        
-        # Envoi SMTP
-        # Utilisation du contexte 'with' pour s'assurer que la connexion est fermée
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
-            server.starttls()
-            server.login(sender_email, sender_password)
-            server.send_message(msg)
-            
-        return True, "Email envoyé avec succès !"
-    except KeyError:
-        return False, "Erreur de configuration : Clés SMTP manquantes ou incorrectes dans secrets.toml."
-    except Exception as e:
-        return False, f"Erreur lors de l'envoi de l'e-mail: {e}"
 
-# --- GESTION DE L'ÉTAT (inchangée) ---
+# --- GESTION DE L'ÉTAT, LOGIQUE MÉTIER, VALIDATION ET UI (inchangées) ---
+
 def init_session_state():
     defaults = {
         'step': 'PROJECT_LOAD',
@@ -362,8 +328,6 @@ def init_session_state():
             st.session_state[key] = value
 
 init_session_state()
-
-# --- LOGIQUE MÉTIER (inchangée) ---
 
 def check_condition(row, current_answers, collected_data):
     try:
@@ -388,9 +352,6 @@ def check_condition(row, current_answers, collected_data):
             return False
     except Exception: return True
 
-# -----------------------------------------------------------
-# --- FONCTION VALIDATION (Identique) ---
-# -----------------------------------------------------------
 COMMENT_ID = 100
 COMMENT_QUESTION = "Veuillez préciser pourquoi le nombre de photo partagé ne correspond pas au minimum attendu"
 
@@ -402,18 +363,15 @@ def validate_section(df_questions, section_name, answers, collected_data):
     has_justification = comment_val is not None and str(comment_val).strip() != ""
     project_data = st.session_state.get('project_data', {})
     
-    # Calcul des photos attendues
     expected_total_base, detail_str = get_expected_photo_count(section_name.strip(), project_data)
     expected_total = expected_total_base
     
-    # Nombre de questions de type 'photo' dans cette section
     photo_question_count = sum(
         1 for _, row in section_rows.iterrows()
         if str(row.get('type', '')).strip().lower() == 'photo' and check_condition(row, answers, collected_data)
     )
     
     if expected_total is not None and expected_total > 0:
-        # Multiplie le nombre de bornes attendues par le nombre de questions photo visibles
         expected_total = expected_total_base * photo_question_count
         detail_str = (
             f"{detail_str} | Questions photo visibles: {photo_question_count} "
@@ -432,16 +390,14 @@ def validate_section(df_questions, section_name, answers, collected_data):
             if isinstance(val, list):
                 current_photo_count += len(val)
 
-    # Condition de suffisance (si aucune photo n'est attendue, c'est suffisant)
     is_count_sufficient = (
         expected_total is None or expected_total <= 0 or 
         (expected_total > 0 and current_photo_count >= expected_total)
     )
     
-    # 1. Validation des champs obligatoires
     for _, row in section_rows.iterrows():
         if int(row['id']) == COMMENT_ID: continue
-        if not check_condition(row, answers, collected_data): continue # Ne valide que les questions visibles
+        if not check_condition(row, answers, collected_data): continue
         
         is_mandatory = str(row['obligatoire']).strip().lower() == 'oui'
         q_id = int(row['id'])
@@ -449,21 +405,17 @@ def validate_section(df_questions, section_name, answers, collected_data):
         val = answers.get(q_id)
         
         if is_mandatory:
-            # Cas spécial : la question 'photo' est considérée comme validée si le nombre est suffisant OU s'il y a justification
             if q_type == 'photo':
                 if is_count_sufficient or has_justification:
                     continue
                 else:
-                    # Le manquant sera traité dans la partie 2 (is_photo_count_incorrect)
                     pass
 
-            # Cas général des champs non-photos
             if isinstance(val, list):
                 if not val: missing.append(f"Question {q_id} : {row['question']} (fichier(s) manquant(s))")
             elif val is None or val == "" or (isinstance(val, (int, float)) and val == 0):
                 missing.append(f"Question {q_id} : {row['question']}")
 
-    # 2. Validation de l'écart photo/commentaire
     is_photo_count_incorrect = False
     if expected_total is not None and expected_total > 0:
         if photo_questions_found and current_photo_count != expected_total:
@@ -475,14 +427,12 @@ def validate_section(df_questions, section_name, answers, collected_data):
                 f"Le champ de commentaire doit être rempli."
             )
             if not has_justification:
-                # Ajout de l'erreur seulement s'il n'y a PAS de justification
                 missing.append(
                     f"**Commentaire (ID {COMMENT_ID}) :** {COMMENT_QUESTION} "
                     f"(requis en raison de l'écart de photo : Attendu {expected_total}, Reçu {current_photo_count}).\n\n"
                     f"{error_message}"
                 )
 
-    # Nettoyage : si l'écart est corrigé ou n'existe pas, on retire le commentaire de la réponse
     if not is_photo_count_incorrect and COMMENT_ID in answers:
         del answers[COMMENT_ID]
 
@@ -490,8 +440,6 @@ def validate_section(df_questions, section_name, answers, collected_data):
 
 validate_phase = validate_section
 validate_identification = validate_section
-
-# --- COMPOSANTS UI (inchangés) ---
 
 def render_question(row, answers, phase_name, key_suffix, loop_index):
     q_id = int(row.get('id', 0))
@@ -803,55 +751,86 @@ elif st.session_state['step'] == 'FINISHED':
     st.markdown("---")
     
     if st.session_state['data_saved']:
-        # Préparation des fichiers
+        # Préparation des données pour le téléchargement et l'e-mail
         csv_data = create_csv_export(st.session_state['collected_data'], st.session_state['df_struct'])
         zip_buffer = create_zip_export(st.session_state['collected_data'])
         date_str = datetime.now().strftime('%Y%m%d_%H%M')
         
-        # 2. TÉLÉCHARGEMENT DIRECT
-        st.markdown("### 📥 1. Télécharger les fichiers")
-        col_csv, col_zip = st.columns(2)
-        
-        with col_csv:
-            file_name_csv = f"Export_{project_name}_{date_str}.csv"
-            st.download_button(label="📄 Télécharger CSV", data=csv_data, file_name=file_name_csv, mime='text/csv')
+        # --- 2. TÉLÉCHARGEMENT AUTOMATIQUE ---
+        st.markdown("### 📥 1. Téléchargement automatique")
 
-        with col_zip:
-            if zip_buffer:
-                file_name_zip = f"Photos_{project_name}_{date_str}.zip"
-                # Assurez-vous que le buffer est bien à 0 avant de télécharger
-                zip_buffer.seek(0) 
-                st.download_button(label="📸 Télécharger ZIP Photos", data=zip_buffer.getvalue(), file_name=file_name_zip, mime='application/zip')
-    
-        # 3. PARTAGE EMAIL (SMTP RESTAURÉ)
-        st.markdown("---")
-        st.markdown("### 📧 2. Envoyer par Email Automatiquement")
-        st.info("Cette option envoie les fichiers directement via le serveur SMTP configuré dans secrets.toml.")
+        # 2a. Génération des liens cachés et du code JS
         
-        with st.form("email_form"):
-            # Pré-remplir l'email du dernier utilisateur si disponible (ou laisser vide)
-            default_email = st.session_state.get('last_email_sent', '') 
-            recipient = st.text_input("Adresse email du destinataire", value=default_email)
-            submit_email = st.form_submit_button("Envoyer le rapport (CSV + ZIP)")
+        # CSV
+        file_name_csv = f"Export_{project_name}_{date_str}.csv"
+        csv_link_html = get_base64_download_html(csv_data, file_name_csv, 'text/csv')
+
+        js_code = f"""
+        <script>
+            // Fonction pour attendre que l'élément soit disponible et le cliquer
+            function clickLink(id, delay) {{
+                setTimeout(function() {{
+                    const link = document.getElementById(id);
+                    if (link) {{
+                        link.click();
+                    }}
+                }}, delay);
+            }}
+
+            // Déclencher le téléchargement CSV immédiatement
+            clickLink('{file_name_csv}', 500);
+        """
+        
+        # ZIP
+        zip_link_html = ""
+        if zip_buffer and zip_buffer.getbuffer().nbytes > 0:
+            file_name_zip = f"Photos_{project_name}_{date_str}.zip"
+            zip_buffer.seek(0)
+            zip_content_bytes = zip_buffer.read()
+            zip_link_html = get_base64_download_html(zip_content_bytes, file_name_zip, 'application/zip')
             
-            if submit_email:
-                if recipient and '@' in recipient:
-                    with st.spinner("Envoi de l'email en cours..."):
-                        # Stocker l'email pour une prochaine fois
-                        st.session_state['last_email_sent'] = recipient
-                        
-                        is_sent, msg_status = send_email_with_attachments(
-                            recipient, 
-                            project_name, 
-                            csv_data, 
-                            zip_buffer
-                        )
-                        if is_sent:
-                            st.success(msg_status)
-                        else:
-                            st.error(f"Échec de l'envoi : {msg_status}")
-                else:
-                    st.warning("Veuillez entrer une adresse email valide.")
+            # Déclencher le téléchargement ZIP avec un léger délai pour que le navigateur gère les deux
+            js_code += f"clickLink('{file_name_zip}', 1500);" 
+            
+            st.success(f"Les téléchargements des fichiers **{file_name_csv}** et **{file_name_zip}** devraient commencer automatiquement. Veuillez vérifier votre barre de téléchargement.")
+        else:
+             st.warning(f"Le fichier **{file_name_csv}** devrait commencer à se télécharger. (Pas de photos à archiver au format ZIP).")
+
+        js_code += "</script>"
+        
+        # 2b. Injection des liens cachés et du script JS
+        st.markdown(csv_link_html + zip_link_html + js_code, unsafe_allow_html=True)
+
+        
+        # --- 3. OUVERTURE DE L'APPLICATION NATIVE (MAILTO) ---
+        st.markdown("---")
+        st.markdown("### 📧 2. Partager par Email (Application Native)")
+        
+        # Construction du mailto:
+        subject = f"Rapport Audit : {project_name}"
+        body = (
+            f"Bonjour,\n\n"
+            f"Veuillez trouver ci-joint le rapport d'audit pour le projet {project_name}.\n"
+            f"(N'oubliez pas d'attacher les fichiers CSV et ZIP que vous venez de télécharger automatiquement).\n\n"
+            f"Cordialement."
+        )
+        
+        # Encodage de l'URL pour gérer les espaces et caractères spéciaux
+        mailto_link = (
+            f"mailto:?" 
+            f"subject={urllib.parse.quote(subject)}" 
+            f"&body={urllib.parse.quote(body)}"
+        )
+        
+        # Affichage du bouton mailto
+        st.markdown(
+            f'<a href="{mailto_link}" target="_blank" style="text-decoration: none;">'
+            f'<button style="background-color: #E9630C; color: white; border: none; padding: 10px 20px; border-radius: 8px; width: 100%; font-size: 16px; cursor: pointer;">'
+            f'Ouvrir l\'application Email'
+            f'</button>'
+            f'</a>',
+            unsafe_allow_html=True
+        )
 
     st.markdown("---")
     if st.button("⬅️ Recommencer l'audit"):
