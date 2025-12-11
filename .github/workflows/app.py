@@ -8,12 +8,12 @@ from datetime import datetime
 import numpy as np
 import zipfile
 import io
-import json
-
-# --- IMPORTS AJOUTÉS POUR GOOGLE DRIVE ---
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email.mime.application import MIMEApplication
+from email import encoders
 
 # --- CONFIGURATION ET STYLE (inchangés) ---
 st.set_page_config(page_title="Formulaire Dynamique - Firestore", layout="centered")
@@ -122,63 +122,7 @@ def initialize_firebase():
 
 db = initialize_firebase()
 
-# ---------------------------------------------------------
-# --- NOUVELLES FONCTIONS GOOGLE DRIVE (AJOUTÉES) ---
-# ---------------------------------------------------------
-
-def get_drive_service():
-    """Initialise et retourne le service Google Drive."""
-    try:
-        # On suppose que le JSON complet est dans st.secrets["google_drive"]["service_account_json"]
-        service_account_info = json.loads(st.secrets["google_drive"]["service_account_json"])
-        
-        creds = service_account.Credentials.from_service_account_info(
-            service_account_info,
-            scopes=['https://www.googleapis.com/auth/drive']
-        )
-        return build('drive', 'v3', credentials=creds)
-    except Exception as e:
-        st.error(f"Erreur d'initialisation Google Drive : {e}")
-        return None
-
-def upload_file_to_drive(file_obj, project_name, phase_name, drive_service):
-    """Uploade un fichier vers Drive et retourne son lien."""
-    try:
-        DRIVE_FOLDER_ID = st.secrets["google_drive"]["target_folder_id"]
-        
-        # Nettoyage du nom pour éviter les caractères spéciaux
-        sanitized_project = str(project_name).replace(' | ', '_').replace(' ', '_').replace('/', '_')
-        sanitized_phase = str(phase_name).replace(' ', '_').replace('/', '_')
-        file_name = f"{sanitized_project}_{sanitized_phase}_{file_obj.name}"
-        
-        file_metadata = {
-            'name': file_name,
-            'parents': [DRIVE_FOLDER_ID]
-        }
-        
-        # Important : Rembobiner le fichier avant lecture
-        file_obj.seek(0)
-        
-        media = MediaIoBaseUpload(io.BytesIO(file_obj.read()),
-                                  mimetype=file_obj.type,
-                                  resumable=True)
-        
-        uploaded_file = drive_service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id, webViewLink'
-        ).execute()
-        
-        # Rembobiner à nouveau pour d'autres usages éventuels (zip, etc.)
-        file_obj.seek(0)
-        
-        return uploaded_file.get('webViewLink')
-    except Exception as e:
-        st.error(f"Erreur upload Drive pour {file_obj.name}: {e}")
-        return None
-
-
-# --- FONCTIONS DE CHARGEMENT ET SAUVEGARDE FIREBASE (MODIFIÉE POUR DRIVE) ---
+# --- FONCTIONS DE CHARGEMENT ET SAUVEGARDE FIREBASE ---
 
 @st.cache_data(ttl=3600)
 def load_form_structure_from_firestore():
@@ -225,16 +169,13 @@ def load_site_data_from_firestore():
     except Exception as e:
         return None
 
-def save_form_data(collected_data, project_data, drive_service=None):
+def save_form_data(collected_data, project_data):
     """
-    MODIFIÉE : Uploade les photos vers Drive et sauvegarde les liens dans Firestore.
+    MODIFIÉE : Sauvegarde les données dans Firestore.
+    Pour les fichiers, on ne sauvegarde que les noms car les fichiers physiques
+    seront envoyés par email/zip et ne sont pas stockés en base.
     """
     try:
-        # Si le service Drive n'est pas passé, on tente de l'initialiser
-        if drive_service is None:
-            drive_service = get_drive_service()
-            
-        project_name = project_data.get('Intitulé', 'Projet_Inconnu')
         cleaned_data = []
 
         for phase in collected_data:
@@ -243,33 +184,14 @@ def save_form_data(collected_data, project_data, drive_service=None):
                 "answers": {}
             }
             for k, v in phase["answers"].items():
-                
-                # --- LOGIQUE DRIVE ---
                 if isinstance(v, list) and v and hasattr(v[0], 'read'): 
-                    # C'est une liste de fichiers -> Upload Drive
-                    if drive_service:
-                        drive_links = []
-                        with st.spinner(f"Upload vers Drive : {phase['phase_name']}..."):
-                            for file_obj in v:
-                                link = upload_file_to_drive(file_obj, project_name, phase["phase_name"], drive_service)
-                                if link:
-                                    drive_links.append(link)
-                                else:
-                                    drive_links.append(f"Erreur upload: {file_obj.name}")
-                        
-                        clean_phase["answers"][str(k)] = drive_links
-                    else:
-                        # Fallback si Drive non configuré (comportement ancien)
-                        file_names = ", ".join([f.name for f in v])
-                        clean_phase["answers"][str(k)] = f"ÉCHEC DRIVE - Fichiers locaux : {file_names}"
+                    # Liste de fichiers : on sauvegarde les noms
+                    file_names = ", ".join([f.name for f in v])
+                    clean_phase["answers"][str(k)] = f"Fichiers (non stockés en DB): {file_names}"
                 
                 elif hasattr(v, 'read'): 
-                    # Cas rare d'un fichier unique non listé
-                    if drive_service:
-                        link = upload_file_to_drive(v, project_name, phase["phase_name"], drive_service)
-                        clean_phase["answers"][str(k)] = link if link else f"Erreur upload: {v.name}"
-                    else:
-                         clean_phase["answers"][str(k)] = f"Image chargée (Nom: {v.name})"
+                    # Fichier unique
+                     clean_phase["answers"][str(k)] = f"Fichier (non stocké en DB): {v.name}"
                 else:
                     # Donnée texte/nombre standard
                     clean_phase["answers"][str(k)] = v
@@ -296,10 +218,9 @@ def save_form_data(collected_data, project_data, drive_service=None):
     except Exception as e:
         return False, str(e)
 
-# --- FONCTIONS EXPORT (MODIFIÉE POUR ZIP) ---
+# --- FONCTIONS EXPORT ET EMAIL ---
 
 def create_csv_export(collected_data, df_struct):
-    """Gère les listes de fichiers (maintenant URLs ou Objets) dans l'export CSV."""
     rows = []
     submission_id = st.session_state.get('submission_id', 'N/A')
     project_name = st.session_state['project_data'].get('Intitulé', 'Projet Inconnu')
@@ -318,21 +239,10 @@ def create_csv_export(collected_data, df_struct):
                 q_row = df_struct[df_struct['id'] == int(q_id)]
                 q_text = q_row.iloc[0]['question'] if not q_row.empty else f"Question ID {q_id}"
             
-            # Affichage dans le CSV
-            if isinstance(val, list) and val:
-                # Si ce sont des objets fichiers (avant save) ou des liens (après save ?)
-                # Note: collected_data contient les objets fichiers en mémoire. 
-                # Les liens sont dans Firestore. 
-                # Si on veut les liens dans le CSV exporté immédiatement, c'est complexe car collected_data n'est pas muté en place.
-                # On affiche le nom des fichiers pour l'instant.
-                if hasattr(val[0], 'name'):
-                    content = ", ".join([f.name for f in val])
-                    final_val = f"[Fichiers à uploader] {len(val)} photos: {content}"
-                else:
-                    # Cas où collected_data aurait été mis à jour avec des liens (si on le faisait)
-                    final_val = str(val)
+            if isinstance(val, list) and val and hasattr(val[0], 'name'):
+                final_val = f"[Pièces jointes] {len(val)} fichiers: " + ", ".join([f.name for f in val])
             elif hasattr(val, 'name'):
-                final_val = f"[Fichier] {val.name}"
+                final_val = f"[Pièce jointe] {val.name}"
             else:
                 final_val = str(val)
             
@@ -352,22 +262,74 @@ def create_csv_export(collected_data, df_struct):
 
 def create_zip_export(collected_data):
     """
-    MODIFIÉE : Crée un ZIP contenant un fichier texte explicatif au lieu des photos,
-    puisque les photos sont envoyées sur Drive.
+    Crée un ZIP contenant les photos présentes en mémoire.
     """
     zip_buffer = io.BytesIO()
     
     with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-        # Création du message explicatif
-        msg = (
-            "Les photos de ce projet ont été automatiquement transférées vers Google Drive.\n"
-            "Veuillez consulter le dossier Google Drive correspondant au projet.\n\n"
-            f"ID Soumission : {st.session_state.get('submission_id', 'N/A')}\n"
-            f"Date : {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-        )
-        zip_file.writestr("LISEZ_MOI_PHOTOS_DRIVE.txt", msg)
+        files_added = 0
+        for phase in collected_data:
+            phase_name_clean = str(phase['phase_name']).replace("/", "_").replace(" ", "_")
+            
+            for q_id, answer in phase['answers'].items():
+                # Si c'est une liste de fichiers (photos)
+                if isinstance(answer, list) and answer and hasattr(answer[0], 'read'):
+                    for idx, file_obj in enumerate(answer):
+                        try:
+                            file_obj.seek(0) # Important : revenir au début du fichier
+                            file_content = file_obj.read()
+                            # Nom unique dans le ZIP : Phase_QID_Index_NomOriginal
+                            filename = f"{phase_name_clean}_Q{q_id}_{idx+1}_{file_obj.name}"
+                            zip_file.writestr(filename, file_content)
+                            files_added += 1
+                            file_obj.seek(0) # Reset pour usage ultérieur
+                        except Exception as e:
+                            print(f"Erreur ajout fichier zip: {e}")
+                            
+        # Ajout d'un petit fichier texte info
+        info_txt = f"Export généré le {datetime.now()}\nNombre de fichiers : {files_added}"
+        zip_file.writestr("info.txt", info_txt)
                     
     return zip_buffer
+
+def send_email_with_attachments(recipient_email, project_name, csv_content, zip_buffer):
+    """Envoie un email avec le CSV et le ZIP en pièces jointes."""
+    try:
+        # Récupération des secrets
+        smtp_server = st.secrets["email"]["smtp_server"]
+        smtp_port = st.secrets["email"]["smtp_port"]
+        sender_email = st.secrets["email"]["sender_email"]
+        sender_password = st.secrets["email"]["sender_password"]
+        
+        msg = MIMEMultipart()
+        msg['From'] = sender_email
+        msg['To'] = recipient_email
+        msg['Subject'] = f"Rapport Audit : {project_name}"
+        
+        body = f"Bonjour,\n\nVeuillez trouver ci-joint le rapport d'audit pour le projet {project_name}.\n\nCe mail contient :\n1. Le fichier CSV des réponses.\n2. L'archive ZIP contenant les photos."
+        msg.attach(MIMEText(body, 'plain'))
+        
+        # Attachement CSV
+        part_csv = MIMEApplication(csv_content.encode('utf-8-sig'), Name=f"Rapport_{project_name}.csv")
+        part_csv['Content-Disposition'] = f'attachment; filename="Rapport_{project_name}.csv"'
+        msg.attach(part_csv)
+        
+        # Attachement ZIP
+        if zip_buffer:
+            zip_buffer.seek(0)
+            part_zip = MIMEApplication(zip_buffer.read(), Name=f"Photos_{project_name}.zip")
+            part_zip['Content-Disposition'] = f'attachment; filename="Photos_{project_name}.zip"'
+            msg.attach(part_zip)
+        
+        # Envoi SMTP
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()
+            server.login(sender_email, sender_password)
+            server.send_message(msg)
+            
+        return True, "Email envoyé avec succès !"
+    except Exception as e:
+        return False, str(e)
 
 # --- GESTION DE L'ÉTAT (inchangée) ---
 def init_session_state():
@@ -417,7 +379,7 @@ def check_condition(row, current_answers, collected_data):
     except Exception: return True
 
 # -----------------------------------------------------------
-# --- FONCTION VALIDATION (Strictement identique à votre demande) ---
+# --- FONCTION VALIDATION (Identique) ---
 # -----------------------------------------------------------
 COMMENT_ID = 100
 COMMENT_QUESTION = "Veuillez préciser pourquoi le nombre de photo partagé ne correspond pas au minimum attendu"
@@ -790,58 +752,73 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
 
 elif st.session_state['step'] == 'FINISHED':
     st.markdown("## 🎉 Formulaire Terminé")
-    st.write(f"Projet : **{st.session_state['project_data'].get('Intitulé')}**")
+    project_name = st.session_state['project_data'].get('Intitulé', 'Projet')
+    st.write(f"Projet : **{project_name}**")
     
+    # 1. SAUVEGARDE FIREBASE
     if not st.session_state['data_saved']:
-        with st.spinner("Sauvegarde dans Firestore et Upload vers Drive en cours..."):
-            
-            # --- MODIFICATION : Initialisation Drive + Sauvegarde ---
-            drive_service = get_drive_service()
-            success = False
-            submission_id_returned = "Erreur Inconnue"
-            
-            if drive_service:
-                 success, submission_id_returned = save_form_data(
-                     st.session_state['collected_data'], 
-                     st.session_state['project_data'],
-                     drive_service=drive_service # On passe le service ici
-                 )
-            else:
-                 st.error("Impossible d'initialiser Google Drive. Sauvegarde annulée.")
+        with st.spinner("Sauvegarde des réponses dans Firestore..."):
+            success, submission_id_returned = save_form_data(
+                st.session_state['collected_data'], 
+                st.session_state['project_data']
+            )
 
             if success:
                 st.balloons()
-                st.success(f"Données sauvegardées et photos uploadées avec succès ! (ID: {submission_id_returned})")
+                st.success(f"Données textuelles sauvegardées sur Firestore ! (ID: {submission_id_returned})")
                 st.session_state['data_saved'] = True
             else:
-                if drive_service: # Si le service était là mais que save a échoué
-                    st.error(f"Erreur lors de la sauvegarde : {submission_id_returned}")
+                st.error(f"Erreur lors de la sauvegarde : {submission_id_returned}")
                 if st.button("Réessayer la sauvegarde"):
                     st.rerun()
     else:
-        st.info("Les données ont déjà été sauvegardées sur Firestore et Drive.")
+        st.info("Les données ont déjà été sauvegardées sur Firestore.")
 
     st.markdown("---")
     
     if st.session_state['data_saved']:
-        st.markdown("### 📥 Télécharger les données")
+        # Préparation des fichiers
+        csv_data = create_csv_export(st.session_state['collected_data'], st.session_state['df_struct'])
+        zip_buffer = create_zip_export(st.session_state['collected_data'])
+        date_str = datetime.now().strftime('%Y%m%d_%H%M')
+        
+        # 2. TÉLÉCHARGEMENT DIRECT
+        st.markdown("### 📥 1. Télécharger les fichiers")
         col_csv, col_zip = st.columns(2)
         
-        csv_data = create_csv_export(st.session_state['collected_data'], st.session_state['df_struct'])
-        date_str = datetime.now().strftime('%Y%m%d_%H%M')
-        file_name_csv = f"Export_{st.session_state['project_data'].get('Intitulé', 'Projet')}_{date_str}.csv"
-        
         with col_csv:
-            st.download_button(label="📄 Télécharger les réponses (CSV)", data=csv_data, file_name=file_name_csv, mime='text/csv')
+            file_name_csv = f"Export_{project_name}_{date_str}.csv"
+            st.download_button(label="📄 Télécharger CSV", data=csv_data, file_name=file_name_csv, mime='text/csv')
 
-        # --- Export ZIP Modifié (Info Drive) ---
-        zip_buffer = create_zip_export(st.session_state['collected_data'])
-        
         with col_zip:
             if zip_buffer:
-                file_name_zip = f"Infos_Drive_{st.session_state['project_data'].get('Intitulé', 'Projet')}_{date_str}.zip"
-                st.download_button(label="ℹ️ Info Photos Drive (ZIP)", data=zip_buffer.getvalue(), file_name=file_name_zip, mime='application/zip')
+                file_name_zip = f"Photos_{project_name}_{date_str}.zip"
+                st.download_button(label="📸 Télécharger ZIP Photos", data=zip_buffer.getvalue(), file_name=file_name_zip, mime='application/zip')
     
+        # 3. PARTAGE EMAIL
+        st.markdown("---")
+        st.markdown("### 📧 2. Envoyer par Email")
+        
+        with st.form("email_form"):
+            recipient = st.text_input("Adresse email du destinataire")
+            submit_email = st.form_submit_button("Envoyer le rapport (CSV + ZIP)")
+            
+            if submit_email:
+                if recipient:
+                    with st.spinner("Envoi de l'email en cours..."):
+                        is_sent, msg_status = send_email_with_attachments(
+                            recipient, 
+                            project_name, 
+                            csv_data, 
+                            zip_buffer
+                        )
+                        if is_sent:
+                            st.success(msg_status)
+                        else:
+                            st.error(f"Échec de l'envoi : {msg_status}")
+                else:
+                    st.warning("Veuillez entrer une adresse email.")
+
     st.markdown("---")
     if st.button("⬅️ Recommencer l'audit"):
         st.session_state.clear()
