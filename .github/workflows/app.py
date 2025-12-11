@@ -8,7 +8,11 @@ from datetime import datetime
 import numpy as np
 import zipfile
 import io
-import urllib.parse # Ajout pour l'encodage du lien mailto
+import urllib.parse
+from docx import Document
+from docx.shared import Inches, Pt, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+import base64
 
 # --- CONFIGURATION ET STYLE (inchangés) ---
 st.set_page_config(page_title="Formulaire Dynamique - Firestore", layout="centered")
@@ -73,7 +77,6 @@ def get_expected_photo_count(section_name, project_data):
             if pd.isna(val) or val == "":
                 num = 0
             else:
-                # Utiliser float() d'abord pour gérer les strings '1.0' ou '1,0'
                 num = int(float(str(val).replace(',', '.'))) 
         except Exception:
             num = 0
@@ -89,7 +92,6 @@ def get_expected_photo_count(section_name, project_data):
 def initialize_firebase():
     if not firebase_admin._apps:
         try:
-            # Récupération des secrets Firebase
             cred_dict = {
                 "type": st.secrets["firebase"]["type"],
                 "project_id": st.secrets["firebase"]["project_id"],
@@ -123,7 +125,6 @@ db = initialize_firebase()
 
 @st.cache_data(ttl=3600)
 def load_form_structure_from_firestore():
-    # Logique inchangée
     try:
         docs = db.collection('formsquestions').order_by('id').get()
         data = [doc.to_dict() for doc in docs]
@@ -155,7 +156,6 @@ def load_form_structure_from_firestore():
 
 @st.cache_data(ttl=3600)
 def load_site_data_from_firestore():
-    # Logique inchangée
     try:
         docs = db.collection('Sites').get()
         data = [doc.to_dict() for doc in docs]
@@ -181,15 +181,12 @@ def save_form_data(collected_data, project_data):
             }
             for k, v in phase["answers"].items():
                 if isinstance(v, list) and v and hasattr(v[0], 'read'): 
-                    # Liste de fichiers : on sauvegarde les noms
                     file_names = ", ".join([f.name for f in v])
                     clean_phase["answers"][str(k)] = f"Fichiers (non stockés en DB): {file_names}"
                 
                 elif hasattr(v, 'read'): 
-                    # Fichier unique
                      clean_phase["answers"][str(k)] = f"Fichier (non stocké en DB): {v.name}"
                 else:
-                    # Donnée texte/nombre standard
                     clean_phase["answers"][str(k)] = v
             
             cleaned_data.append(clean_phase)
@@ -214,7 +211,7 @@ def save_form_data(collected_data, project_data):
     except Exception as e:
         return False, str(e)
 
-# --- FONCTIONS EXPORT CSV ET ZIP ---
+# --- FONCTIONS EXPORT CSV, ZIP ET WORD ---
 
 def create_csv_export(collected_data, df_struct):
     rows = []
@@ -254,43 +251,170 @@ def create_csv_export(collected_data, df_struct):
             })
             
     df_export = pd.DataFrame(rows)
-    # Utilisation du séparateur ';' et encodage 'utf-8-sig' pour une meilleure compatibilité Excel
     return df_export.to_csv(index=False, sep=';', encoding='utf-8-sig')
 
 def create_zip_export(collected_data):
     """
     Crée un ZIP contenant les photos présentes en mémoire.
+    CORRECTION: Gestion correcte des fichiers UploadedFile de Streamlit
     """
     zip_buffer = io.BytesIO()
     
-    with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
         files_added = 0
         for phase in collected_data:
             phase_name_clean = str(phase['phase_name']).replace("/", "_").replace(" ", "_")
             
             for q_id, answer in phase['answers'].items():
-                # Si c'est une liste de fichiers (photos)
                 if isinstance(answer, list) and answer and hasattr(answer[0], 'read'):
                     for idx, file_obj in enumerate(answer):
                         try:
-                            # IMPORTANT : revenir au début du fichier après un upload
-                            file_obj.seek(0) 
+                            # CORRECTION: Reset du pointeur et lecture
+                            file_obj.seek(0)
                             file_content = file_obj.read()
-                            # Nom unique dans le ZIP : Phase_QID_Index_NomOriginal
-                            # On nettoie le nom de fichier pour éviter les problèmes de chemin
-                            original_name = file_obj.name.split('/')[-1].split('\\')[-1]
-                            filename = f"{phase_name_clean}_Q{q_id}_{idx+1}_{original_name}"
-                            zip_file.writestr(filename, file_content)
-                            files_added += 1
-                            file_obj.seek(0) # Reset pour usage ultérieur
-                        except Exception as e:
-                            print(f"Erreur ajout fichier zip: {e}")
                             
-        # Ajout d'un petit fichier texte info
+                            # Vérification que le contenu n'est pas vide
+                            if file_content:
+                                original_name = file_obj.name.split('/')[-1].split('\\')[-1]
+                                filename = f"{phase_name_clean}_Q{q_id}_{idx+1}_{original_name}"
+                                zip_file.writestr(filename, file_content)
+                                files_added += 1
+                            
+                            # Reset pour usage ultérieur
+                            file_obj.seek(0)
+                        except Exception as e:
+                            st.warning(f"Erreur lors de l'ajout du fichier {file_obj.name}: {e}")
+                            
         info_txt = f"Export généré le {datetime.now()}\nNombre de fichiers : {files_added}"
         zip_file.writestr("info.txt", info_txt)
-                    
+    
+    zip_buffer.seek(0)
     return zip_buffer
+
+def create_word_report(collected_data, df_struct, project_data):
+    """
+    Crée un rapport Word avec toutes les questions et les photos
+    """
+    doc = Document()
+    
+    # Style du document
+    style = doc.styles['Normal']
+    font = style.font
+    font.name = 'Calibri'
+    font.size = Pt(11)
+    
+    # En-tête
+    header = doc.add_heading('Rapport d\'Audit Chantier', 0)
+    header.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    # Informations du projet
+    doc.add_heading('Informations du Projet', level=1)
+    project_table = doc.add_table(rows=3, cols=2)
+    project_table.style = 'Light Grid Accent 1'
+    
+    project_table.rows[0].cells[0].text = 'Intitulé'
+    project_table.rows[0].cells[1].text = str(project_data.get('Intitulé', 'N/A'))
+    project_table.rows[1].cells[0].text = 'Date de début'
+    project_table.rows[1].cells[1].text = st.session_state.get('form_start_time', datetime.now()).strftime('%d/%m/%Y %H:%M')
+    project_table.rows[2].cells[0].text = 'Date de fin'
+    project_table.rows[2].cells[1].text = datetime.now().strftime('%d/%m/%Y %H:%M')
+    
+    doc.add_paragraph()
+    
+    # Détails du projet
+    doc.add_heading('Détails du Projet', level=2)
+    for group in DISPLAY_GROUPS:
+        for field_key in group:
+            renamed_key = PROJECT_RENAME_MAP.get(field_key, field_key)
+            value = project_data.get(field_key, 'N/A')
+            p = doc.add_paragraph()
+            p.add_run(f'{renamed_key}: ').bold = True
+            p.add_run(str(value))
+    
+    doc.add_page_break()
+    
+    # Parcourir toutes les phases
+    for phase_idx, phase in enumerate(collected_data):
+        phase_name = phase['phase_name']
+        doc.add_heading(f'Phase: {phase_name}', level=1)
+        
+        # Parcourir toutes les questions de cette phase
+        for q_id, answer in phase['answers'].items():
+            # Récupérer le texte de la question
+            if int(q_id) == 100:
+                q_text = "Commentaire Écart Photo"
+            else:
+                q_row = df_struct[df_struct['id'] == int(q_id)]
+                q_text = q_row.iloc[0]['question'] if not q_row.empty else f"Question ID {q_id}"
+            
+            # Ajouter la question
+            question_p = doc.add_paragraph()
+            question_p.add_run(f'Q{q_id}: {q_text}').bold = True
+            
+            # Gérer la réponse selon son type
+            if isinstance(answer, list) and answer and hasattr(answer[0], 'read'):
+                # Liste de photos
+                doc.add_paragraph(f'Nombre de photos: {len(answer)}')
+                
+                for idx, file_obj in enumerate(answer):
+                    try:
+                        file_obj.seek(0)
+                        image_data = file_obj.read()
+                        
+                        if image_data:
+                            # Créer un objet BytesIO pour l'image
+                            image_stream = io.BytesIO(image_data)
+                            
+                            # Ajouter l'image au document (largeur max 6 inches)
+                            doc.add_picture(image_stream, width=Inches(5))
+                            
+                            # Ajouter la légende
+                            caption = doc.add_paragraph(f'Photo {idx+1}: {file_obj.name}')
+                            caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                            caption_format = caption.runs[0].font
+                            caption_format.size = Pt(9)
+                            caption_format.italic = True
+                        
+                        file_obj.seek(0)
+                    except Exception as e:
+                        doc.add_paragraph(f'[Erreur lors du chargement de la photo {idx+1}: {e}]')
+            
+            elif hasattr(answer, 'read'):
+                # Photo unique
+                try:
+                    answer.seek(0)
+                    image_data = answer.read()
+                    
+                    if image_data:
+                        image_stream = io.BytesIO(image_data)
+                        doc.add_picture(image_stream, width=Inches(5))
+                        caption = doc.add_paragraph(f'Photo: {answer.name}')
+                        caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        caption_format = caption.runs[0].font
+                        caption_format.size = Pt(9)
+                        caption_format.italic = True
+                    
+                    answer.seek(0)
+                except Exception as e:
+                    doc.add_paragraph(f'[Erreur lors du chargement de la photo: {e}]')
+            
+            else:
+                # Réponse textuelle
+                answer_p = doc.add_paragraph(str(answer))
+                answer_p.paragraph_format.left_indent = Inches(0.5)
+            
+            doc.add_paragraph()  # Espace entre les questions
+        
+        # Saut de page entre les phases (sauf pour la dernière)
+        if phase_idx < len(collected_data) - 1:
+            doc.add_page_break()
+    
+    # Sauvegarder dans un buffer
+    word_buffer = io.BytesIO()
+    doc.save(word_buffer)
+    word_buffer.seek(0)
+    
+    return word_buffer
 
 # --- GESTION DE L'ÉTAT (inchangée) ---
 def init_session_state():
@@ -353,18 +477,15 @@ def validate_section(df_questions, section_name, answers, collected_data):
     has_justification = comment_val is not None and str(comment_val).strip() != ""
     project_data = st.session_state.get('project_data', {})
     
-    # Calcul des photos attendues
     expected_total_base, detail_str = get_expected_photo_count(section_name.strip(), project_data)
     expected_total = expected_total_base
     
-    # Nombre de questions de type 'photo' dans cette section
     photo_question_count = sum(
         1 for _, row in section_rows.iterrows()
         if str(row.get('type', '')).strip().lower() == 'photo' and check_condition(row, answers, collected_data)
     )
     
     if expected_total is not None and expected_total > 0:
-        # Multiplie le nombre de bornes attendues par le nombre de questions photo visibles
         expected_total = expected_total_base * photo_question_count
         detail_str = (
             f"{detail_str} | Questions photo visibles: {photo_question_count} "
@@ -383,16 +504,14 @@ def validate_section(df_questions, section_name, answers, collected_data):
             if isinstance(val, list):
                 current_photo_count += len(val)
 
-    # Condition de suffisance (si aucune photo n'est attendue, c'est suffisant)
     is_count_sufficient = (
         expected_total is None or expected_total <= 0 or 
         (expected_total > 0 and current_photo_count >= expected_total)
     )
     
-    # 1. Validation des champs obligatoires
     for _, row in section_rows.iterrows():
         if int(row['id']) == COMMENT_ID: continue
-        if not check_condition(row, answers, collected_data): continue # Ne valide que les questions visibles
+        if not check_condition(row, answers, collected_data): continue
         
         is_mandatory = str(row['obligatoire']).strip().lower() == 'oui'
         q_id = int(row['id'])
@@ -400,21 +519,17 @@ def validate_section(df_questions, section_name, answers, collected_data):
         val = answers.get(q_id)
         
         if is_mandatory:
-            # Cas spécial : la question 'photo' est considérée comme validée si le nombre est suffisant OU s'il y a justification
             if q_type == 'photo':
                 if is_count_sufficient or has_justification:
                     continue
                 else:
-                    # Le manquant sera traité dans la partie 2 (is_photo_count_incorrect)
                     pass
 
-            # Cas général des champs non-photos
             if isinstance(val, list):
                 if not val: missing.append(f"Question {q_id} : {row['question']} (fichier(s) manquant(s))")
             elif val is None or val == "" or (isinstance(val, (int, float)) and val == 0):
                 missing.append(f"Question {q_id} : {row['question']}")
 
-    # 2. Validation de l'écart photo/commentaire
     is_photo_count_incorrect = False
     if expected_total is not None and expected_total > 0:
         if photo_questions_found and current_photo_count != expected_total:
@@ -426,14 +541,12 @@ def validate_section(df_questions, section_name, answers, collected_data):
                 f"Le champ de commentaire doit être rempli."
             )
             if not has_justification:
-                # Ajout de l'erreur seulement s'il n'y a PAS de justification
                 missing.append(
                     f"**Commentaire (ID {COMMENT_ID}) :** {COMMENT_QUESTION} "
                     f"(requis en raison de l'écart de photo : Attendu {expected_total}, Reçu {current_photo_count}).\n\n"
                     f"{error_message}"
                 )
 
-    # Nettoyage : si l'écart est corrigé ou n'existe pas, on retire le commentaire de la réponse
     if not is_photo_count_incorrect and COMMENT_ID in answers:
         del answers[COMMENT_ID]
 
@@ -754,59 +867,91 @@ elif st.session_state['step'] == 'FINISHED':
     st.markdown("---")
     
     if st.session_state['data_saved']:
-        # Préparation des données pour le téléchargement et l'e-mail
+        # Préparation des exports
         csv_data = create_csv_export(st.session_state['collected_data'], st.session_state['df_struct'])
         zip_buffer = create_zip_export(st.session_state['collected_data'])
         date_str = datetime.now().strftime('%Y%m%d_%H%M')
         
         # --- 2. TÉLÉCHARGEMENT DIRECT ---
-        st.markdown("### 📥 1. Télécharger les pièces jointes")
-        st.warning("Veuillez télécharger ces deux fichiers pour pouvoir les joindre manuellement à l'e-mail.")
+        st.markdown("### 📥 Télécharger les fichiers")
         
-        col_csv, col_zip = st.columns(2)
+        col_csv, col_zip, col_word = st.columns(3)
         
         file_name_csv = f"Export_{project_name}_{date_str}.csv"
         with col_csv:
-            st.download_button(label="📄 Télécharger CSV", data=csv_data, file_name=file_name_csv, mime='text/csv')
+            st.download_button(
+                label="📄 CSV", 
+                data=csv_data, 
+                file_name=file_name_csv, 
+                mime='text/csv',
+                use_container_width=True
+            )
 
         if zip_buffer:
             file_name_zip = f"Photos_{project_name}_{date_str}.zip"
             with col_zip:
-                # Assurez-vous que le buffer est bien à 0 avant de télécharger
-                zip_buffer.seek(0) 
-                st.download_button(label="📸 Télécharger ZIP Photos", data=zip_buffer.getvalue(), file_name=file_name_zip, mime='application/zip')
+                st.download_button(
+                    label="📸 ZIP Photos", 
+                    data=zip_buffer.getvalue(), 
+                    file_name=file_name_zip, 
+                    mime='application/zip',
+                    use_container_width=True
+                )
+        
+        # Génération du rapport Word
+        with st.spinner("Génération du rapport Word..."):
+            try:
+                word_buffer = create_word_report(
+                    st.session_state['collected_data'],
+                    st.session_state['df_struct'],
+                    st.session_state['project_data']
+                )
+                
+                file_name_word = f"Rapport_{project_name}_{date_str}.docx"
+                with col_word:
+                    st.download_button(
+                        label="📋 Rapport Word", 
+                        data=word_buffer.getvalue(), 
+                        file_name=file_name_word, 
+                        mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                        use_container_width=True
+                    )
+                st.success("✅ Rapport Word généré avec succès !")
+            except Exception as e:
+                st.error(f"Erreur lors de la génération du rapport Word : {e}")
     
         # --- 3. OUVERTURE DE L'APPLICATION NATIVE (MAILTO) ---
         st.markdown("---")
-        st.markdown("### 📧 2. Partager par Email")
+        st.markdown("### 📧 Partager par Email")
+        st.info("💡 Téléchargez d'abord les fichiers ci-dessus, puis cliquez sur le bouton ci-dessous pour ouvrir votre application email.")
         
-        # Construction du mailto:
         subject = f"Rapport Audit : {project_name}"
         body = (
             f"Bonjour,\n\n"
             f"Veuillez trouver ci-joint le rapport d'audit pour le projet {project_name}.\n"
-            f"(N'oubliez pas d'ajouter les fichiers CSV et ZIP que vous avez téléchargés précédemment).\n\n"
+            f"Fichiers à joindre :\n"
+            f"- {file_name_csv}\n"
+            f"- {file_name_zip}\n"
+            f"- {file_name_word}\n\n"
             f"Cordialement."
         )
         
-        # Encodage de l'URL pour gérer les espaces et caractères spéciaux
         mailto_link = (
             f"mailto:?" 
             f"subject={urllib.parse.quote(subject)}" 
             f"&body={urllib.parse.quote(body)}"
         )
         
-        # Affichage du bouton mailto en utilisant du markdown HTML pour le lien
         st.markdown(
             f'<a href="{mailto_link}" target="_blank" style="text-decoration: none;">'
             f'<button style="background-color: #E9630C; color: white; border: none; padding: 10px 20px; border-radius: 8px; width: 100%; font-size: 16px; cursor: pointer;">'
-            f'Ouvrir l\'application Email'
+            f'📧 Ouvrir l\'application Email'
             f'</button>'
             f'</a>',
             unsafe_allow_html=True
         )
 
     st.markdown("---")
-    if st.button("⬅️ Recommencer l'audit"):
+    if st.button("🔄 Recommencer l'audit"):
         st.session_state.clear()
         st.rerun()
