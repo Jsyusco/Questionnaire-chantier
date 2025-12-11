@@ -916,4 +916,3 @@ elif st.session_state['step'] == 'FINISHED':
     if st.button("⬅️ Recommencer l'audit"):
         st.session_state.clear()
         st.rerun()
-        
