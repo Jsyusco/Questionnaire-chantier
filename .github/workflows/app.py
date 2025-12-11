@@ -127,6 +127,38 @@ def initialize_firebase():
 
 db = initialize_firebase()
 
+
+# --- NOUVELLE FONCTION UTILITAIRE ---
+def process_files_for_storage(answers):
+    """
+    Convertit les objets UploadedFile temporaires en dictionnaires persistants 
+    contenant les données binaires (bytes).
+    """
+    processed_answers = {}
+    for k, v in answers.items():
+        # Si c'est une liste de fichiers (cas de nos photos)
+        if isinstance(v, list) and v and hasattr(v[0], 'read'):
+            files_data = []
+            for f in v:
+                f.seek(0) # On s'assure d'être au début du fichier
+                files_data.append({
+                    "name": f.name,
+                    "type": f.type,
+                    "content": f.read() # On lit et stocke les octets
+                })
+            processed_answers[k] = files_data
+        # Si c'est un fichier unique (au cas où)
+        elif hasattr(v, 'read'):
+             v.seek(0)
+             processed_answers[k] = {
+                 "name": v.name, 
+                 "type": v.type, 
+                 "content": v.read()
+             }
+        else:
+            processed_answers[k] = v
+    return processed_answers
+
 # --- FONCTIONS DE CHARGEMENT ET SAUVEGARDE FIREBASE ---
 
 @st.cache_data(ttl=3600)
