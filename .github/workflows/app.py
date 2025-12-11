@@ -129,25 +129,26 @@ db = initialize_firebase()
 
 
 # --- NOUVELLE FONCTION UTILITAIRE ---
+# ... (Fonction process_files_for_storage)
 def process_files_for_storage(answers):
     """
     Convertit les objets UploadedFile temporaires en dictionnaires persistants 
-    contenant les données binaires (bytes).
+    contenant les données binaires (bytes) pour les stocker dans le Session State.
     """
     processed_answers = {}
     for k, v in answers.items():
-        # Si c'est une liste de fichiers (cas de nos photos)
+        # Cas d'une liste de fichiers (multi-upload)
         if isinstance(v, list) and v and hasattr(v[0], 'read'):
             files_data = []
             for f in v:
-                f.seek(0) # On s'assure d'être au début du fichier
+                f.seek(0) # IMPORTANT: repositionne le curseur au début
                 files_data.append({
                     "name": f.name,
                     "type": f.type,
-                    "content": f.read() # On lit et stocke les octets
+                    "content": f.read() # Stockage des bytes
                 })
             processed_answers[k] = files_data
-        # Si c'est un fichier unique (au cas où)
+        # Cas d'un fichier unique
         elif hasattr(v, 'read'):
              v.seek(0)
              processed_answers[k] = {
@@ -158,6 +159,7 @@ def process_files_for_storage(answers):
         else:
             processed_answers[k] = v
     return processed_answers
+# ...
 
 # --- FONCTIONS DE CHARGEMENT ET SAUVEGARDE FIREBASE ---
 
