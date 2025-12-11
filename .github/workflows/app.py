@@ -315,7 +315,7 @@ def create_word_report(collected_data, df_struct, project_data):
     font_heading1 = style_heading1.font
     font_heading1.name = 'Arial Black'
     font_heading1.size = Pt(18)         # Grande taille pour les phases
-    font_heading1.color.rgb = RGBColor(0x8B, 0x00, 0x00) # Rouge Brique pour les Phases
+    font_heading1.color.rgb = RGBColor(0x01, 0x38, 0x2D) # Rouge Brique pour les Phases
     
     # --- 2. CONFIGURATION DES MARGES ---
     section = doc.sections[0] # Utiliser doc, pas document
