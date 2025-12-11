@@ -297,15 +297,31 @@ def create_word_report(collected_data, df_struct, project_data):
     """
     doc = Document()
     
-    # Style du document
-    style = doc.styles['Normal']
-    font = style.font
-    font.name = 'Calibri'
-    font.size = Pt(11)
+   # --- 1. CONFIGURATION DU STYLE PAR DÉFAUT (Normal) ---
+    styles = document.styles
+    style_normal = styles['Normal']
+    font_normal = style_normal.font
+    font_normal.name = 'Arial'
+    font_normal.size = Pt(11)
+    font_normal.color.rgb = RGBColor(0x1F, 0x49, 0x7D) # Un bleu foncé (typique de Word)
     
-    # En-tête
-    header = doc.add_heading('Rapport d\'Audit Chantier', 0)
-    header.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    # --- 2. CONFIGURATION DES MARGES ---
+    section = document.sections[0]
+    section.top_margin = Inches(0.75)
+    section.bottom_margin = Inches(0.75)
+    section.left_margin = Inches(1.0)
+    section.right_margin = Inches(1.0)
+    
+    # --- 3. CONFIGURATION DE L'EN-TÊTE/PIED DE PAGE ---
+    # En-tête : Nom du Projet
+    header = section.header
+    header_p = header.paragraphs[0]
+    header_p.text = f"Rapport pour le projet : {project_data.get('name', 'Sans Nom')}"
+    header_p.alignment = 2 # 2 = alignement à droite
+    
+    # Pied de page : Texte simple
+    footer = section.footer
+    footer.paragraphs[0].text = "© 2025 - Tous droits réservés"
     
     # Informations du projet
     doc.add_heading('Informations du Projet', level=1)
