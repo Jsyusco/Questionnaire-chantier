@@ -707,22 +707,22 @@ elif st.session_state['step'] == 'IDENTIFICATION':
             render_question(row, st.session_state['current_phase_temp'], ID_SECTION_NAME, rendering_id, idx)
             
     st.markdown("---")
-        if st.button("✅ Valider l'identification"):
-                is_valid, errors = validate_identification(df, ID_SECTION_NAME, st.session_state['current_phase_temp'], st.session_state['collected_data'])
-                if is_valid:
-                    # --- MODIFICATION ICI : On convertit les fichiers avant stockage ---
-                    clean_answers = process_files_for_storage(st.session_state['current_phase_temp'])
-                    id_entry = {"phase_name": ID_SECTION_NAME, "answers": clean_answers}
-                    # ------------------------------------------------------------------
-                    st.session_state['collected_data'].append(id_entry)
-                    st.session_state['identification_completed'] = True
-                    st.session_state['step'] = 'LOOP_DECISION'
-                    st.session_state['current_phase_temp'] = {}
-                    st.session_state['show_comment_on_error'] = False
-                    st.success("Identification validée.")
-                    st.rerun()
-        else:
-            st.markdown('<div class="error-box"><b>⚠️ Erreur de validation :</b><br>' + '<br>'.join([f"- {e}" for e in errors]) + '</div>', unsafe_allow_html=True)
+    if st.button("✅ Valider l'identification"):
+            is_valid, errors = validate_identification(df, ID_SECTION_NAME, st.session_state['current_phase_temp'], st.session_state['collected_data'])
+            if is_valid:
+                # --- MODIFICATION ICI : On convertit les fichiers avant stockage ---
+                clean_answers = process_files_for_storage(st.session_state['current_phase_temp'])
+                id_entry = {"phase_name": ID_SECTION_NAME, "answers": clean_answers}
+                # ------------------------------------------------------------------
+                st.session_state['collected_data'].append(id_entry)
+                st.session_state['identification_completed'] = True
+                st.session_state['step'] = 'LOOP_DECISION'
+                st.session_state['current_phase_temp'] = {}
+                st.session_state['show_comment_on_error'] = False
+                st.success("Identification validée.")
+                st.rerun()
+            else:
+                st.markdown('<div class="error-box"><b>⚠️ Erreur de validation :</b><br>' + '<br>'.join([f"- {e}" for e in errors]) + '</div>', unsafe_allow_html=True)
 
 elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
     project_intitule = st.session_state['project_data'].get('Intitulé', 'Projet Inconnu')
