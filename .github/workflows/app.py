@@ -780,57 +780,27 @@ elif st.session_state['step'] == 'FINISHED':
         st.markdown("---")
         st.markdown("### 📧 2. Partager par Email")
         
-        # Données communes du mail
+        # Construction du mailto:
         subject = f"Rapport Audit : {project_name}"
-        body_content = (
+        body = (
             f"Bonjour,\n\n"
             f"Veuillez trouver ci-joint le rapport d'audit pour le projet {project_name}.\n"
             f"(N'oubliez pas d'ajouter les fichiers CSV et ZIP que vous avez téléchargés précédemment).\n\n"
             f"Cordialement."
         )
         
-        # 1. Option : Application Native (mailto:)
-        # ----------------------------------------
-        
-        # Construction du mailto:
+        # Encodage de l'URL pour gérer les espaces et caractères spéciaux
         mailto_link = (
             f"mailto:?" 
             f"subject={urllib.parse.quote(subject)}" 
-            f"&body={urllib.parse.quote(body_content)}"
+            f"&body={urllib.parse.quote(body)}"
         )
         
-        st.markdown("#### Option 1 : Application native par défaut (Outlook, Apple Mail, etc.)")
-        # Affichage du bouton mailto
+        # Affichage du bouton mailto en utilisant du markdown HTML pour le lien
         st.markdown(
             f'<a href="{mailto_link}" target="_blank" style="text-decoration: none;">'
             f'<button style="background-color: #E9630C; color: white; border: none; padding: 10px 20px; border-radius: 8px; width: 100%; font-size: 16px; cursor: pointer;">'
-            f'Ouvrir l\'application Email par défaut'
-            f'</button>'
-            f'</a>',
-            unsafe_allow_html=True
-        )
-        
-        st.markdown("---")
-        
-        # 2. Option : Gmail (Service Web)
-        # -------------------------------
-        
-        # Le corps du message pour Gmail doit être encodé en HTML (pour les retours à la ligne)
-        gmail_body_encoded = urllib.parse.quote(body_content.replace('\n', '%0A'))
-        
-        # Construction de l'URL pour Gmail : https://mail.google.com/mail/u/0/?view=cm&fs=1&su=SUJET&body=CORPS
-        gmail_link = (
-            f"https://mail.google.com/mail/u/0/?view=cm&fs=1&"
-            f"su={urllib.parse.quote(subject)}" 
-            f"&body={gmail_body_encoded}"
-        )
-        
-        st.markdown("#### Option 2 : Ouvrir dans un navigateur (via Gmail)")
-        # Affichage du bouton Gmail
-        st.markdown(
-            f'<a href="{gmail_link}" target="_blank" style="text-decoration: none;">'
-            f'<button style="background-color: #DB4437; color: white; border: none; padding: 10px 20px; border-radius: 8px; width: 100%; font-size: 16px; cursor: pointer;">'
-            f'Ouvrir dans Gmail'
+            f'Ouvrir l\'application Email'
             f'</button>'
             f'</a>',
             unsafe_allow_html=True
