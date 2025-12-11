@@ -298,35 +298,25 @@ def create_csv_export(collected_data, df_struct):
     return df_export.to_csv(index=False, sep=';', encoding='utf-8-sig')
 
 def create_zip_export(collected_data):
-    """
-    Crée un ZIP contenant les photos présentes en mémoire.
-    """
     zip_buffer = io.BytesIO()
-    
     with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
         files_added = 0
         for phase in collected_data:
             phase_name_clean = str(phase['phase_name']).replace("/", "_").replace(" ", "_")
             
             for q_id, answer in phase['answers'].items():
-                # Si c'est une liste de fichiers (photos)
-                if isinstance(answer, list) and answer and hasattr(answer[0], 'read'):
-                    for idx, file_obj in enumerate(answer):
+                # Détection du nouveau format (liste de dictionnaires avec clé 'content')
+                if isinstance(answer, list) and answer and isinstance(answer[0], dict) and 'content' in answer[0]:
+                    for idx, file_data in enumerate(answer):
                         try:
-                            # IMPORTANT : revenir au début du fichier après un upload
-                            file_obj.seek(0) 
-                            file_content = file_obj.read()
-                            # Nom unique dans le ZIP : Phase_QID_Index_NomOriginal
-                            # On nettoie le nom de fichier pour éviter les problèmes de chemin
-                            original_name = file_obj.name.split('/')[-1].split('\\')[-1]
+                            file_content = file_data['content']
+                            original_name = file_data['name'].split('/')[-1].split('\\')[-1]
                             filename = f"{phase_name_clean}_Q{q_id}_{idx+1}_{original_name}"
                             zip_file.writestr(filename, file_content)
                             files_added += 1
-                            file_obj.seek(0) # Reset pour usage ultérieur
                         except Exception as e:
                             print(f"Erreur ajout fichier zip: {e}")
                             
-        # Ajout d'un petit fichier texte info
         info_txt = f"Export généré le {datetime.now()}\nNombre de fichiers : {files_added}"
         zip_file.writestr("info.txt", info_txt)
                     
