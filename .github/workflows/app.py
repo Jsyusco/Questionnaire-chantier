@@ -306,7 +306,7 @@ def create_word_report(collected_data, df_struct, project_data):
     # En-tête
     header = doc.add_heading('Rapport d\'Audit Chantier', 0)
     header.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    header.format.color.rgb = RGBColor(0x01, 0x38, 0x2D)
+    header.normal.color.rgb = RGBColor(0x01, 0x38, 0x2D)
     
     # Informations du projet
     doc.add_heading('Informations du Projet', level=1)
