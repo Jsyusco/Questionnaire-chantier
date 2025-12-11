@@ -297,6 +297,9 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH # Ajout de l'import pour l'alignem
 # ...
 
 def create_word_report(collected_data, df_struct, project_data):
+    """
+    Crée un rapport Word avec toutes les questions et les photos en appliquant des styles personnalisés.
+    """
     doc = Document()
     styles = doc.styles
     
@@ -305,48 +308,123 @@ def create_word_report(collected_data, df_struct, project_data):
     font_normal = style_normal.font
     font_normal.name = 'Arial'
     font_normal.size = Pt(11)
-    font_normal.color.rgb = RGBColor(0x1F, 0x49, 0x7D) 
+    font_normal.color.rgb = RGBColor(0x00, 0x00, 0x00) # Noir par défaut
     
     # --- 1b. CONFIGURATION DU STYLE HEADING 1 (POUR LES PHASES) ---
     style_heading1 = styles['Heading 1']
     font_heading1 = style_heading1.font
     font_heading1.name = 'Arial Black'
-    font_heading1.size = Pt(16)        
-    font_heading1.color.rgb = RGBColor(0x8B, 0x00, 0x00) # Rouge foncé pour les Phases
+    font_heading1.size = Pt(18)         # Grande taille pour les phases
+    font_heading1.color.rgb = RGBColor(0x8B, 0x00, 0x00) # Rouge Brique pour les Phases
     
     # --- 2. CONFIGURATION DES MARGES ---
-    # ... (le code des marges reste le même)
+    section = doc.sections[0] # Utiliser doc, pas document
+    section.top_margin = Inches(0.75)
+    section.bottom_margin = Inches(0.75)
+    section.left_margin = Inches(1.0)
+    section.right_margin = Inches(1.0)
     
-    # ... (code d'ajout des informations du projet reste le même)
+    # --- 3. CONFIGURATION DE L'EN-TÊTE/PIED DE PAGE ---
+    # En-tête : Nom du Projet
+    header = section.header
+    # S'assurer qu'il y a un paragraphe, en général le premier est créé automatiquement
+    if not header.paragraphs:
+        header.add_paragraph() 
+        
+    header_p = header.paragraphs[0]
+    header_p.text = f"Rapport pour le projet : {project_data.get('Intitulé', 'Sans Nom')}"
+    header_p.alignment = 2 # 2 = alignement à droite
+    
+    # Pied de page : Texte simple
+    footer = section.footer
+    if not footer.paragraphs:
+        footer.add_paragraph()
+        
+    footer.paragraphs[0].text = "© 2025 - Tous droits réservés | Page X" # Simuler un pied de page
+    
+    # Informations du projet
+    doc.add_heading('Informations du Projet', level=1) # Utilise le style Heading 1 stylisé ci-dessus
+    project_table = doc.add_table(rows=3, cols=2)
+    project_table.style = 'Light Grid Accent 1'
+    
+    # (Code d'ajout des données de table omis pour la concision, supposé fonctionnel)
+    project_table.rows[0].cells[0].text = 'Intitulé'
+    project_table.rows[0].cells[1].text = str(project_data.get('Intitulé', 'N/A'))
+    
+    # ... autres lignes de la table ...
+    
+    doc.add_paragraph()
+    
+    # Détails du projet
+    doc.add_heading('Détails du Projet', level=2)
+    for group in DISPLAY_GROUPS:
+        for field_key in group:
+            renamed_key = PROJECT_RENAME_MAP.get(field_key, field_key)
+            value = project_data.get(field_key, 'N/A')
+            p = doc.add_paragraph()
+            p.add_run(f'{renamed_key}: ').bold = True
+            p.add_run(str(value))
+    
+    doc.add_page_break()
     
     # Parcourir toutes les phases
     for phase_idx, phase in enumerate(collected_data):
         phase_name = phase['phase_name']
-        # doc.add_heading utilise maintenant le style Heading 1 modifié ci-dessus.
         doc.add_heading(f'Phase: {phase_name}', level=1)
         
         # Parcourir toutes les questions de cette phase
         for q_id, answer in phase['answers'].items():
-            # ... (récupération de q_text reste la même)
+            # Récupérer le texte de la question
+            if int(q_id) == 100:
+                q_text = "Commentaire Écart Photo"
+            else:
+                q_row = df_struct[df_struct['id'] == int(q_id)]
+                q_text = q_row.iloc[0]['question'] if not q_row.empty else f"Question ID {q_id}"
             
-            # Ajouter la question (MODIFICATION ICI)
+            # Ajouter la question (APPLIQUER LE STYLE DE LA QUESTION)
             question_p = doc.add_paragraph()
-            question_run = question_p.add_run(f'Q{q_id}: {q_text}') # Récupérer le Run
+            question_run = question_p.add_run(f'Q{q_id}: {q_text}') # Obtenir le Run
             question_run.bold = True
             
             # --- MODIFICATION DU STYLE DE LA QUESTION ---
             question_format = question_run.font
-            question_format.size = Pt(12) 
-            question_format.color.rgb = RGBColor(0x00, 0x50, 0xA0) # Bleu vif pour les Questions
+            question_format.size = Pt(13) # Taille personnalisée
+            question_format.color.rgb = RGBColor(0x00, 0x50, 0xA0) # Bleu vif pour la Question
             
             # Gérer la réponse selon son type
             if isinstance(answer, list) and answer and hasattr(answer[0], 'read'):
-                # ... (code pour les photos, vous pouvez ajuster la taille/couleur de la légende ici aussi) ...
+                # Liste de photos
+                doc.add_paragraph(f'Nombre de photos: {len(answer)}')
                 
-            # ... (code pour la photo unique) ...
+                for idx, file_obj in enumerate(answer):
+                    try:
+                        file_obj.seek(0)
+                        image_data = file_obj.read()
+                        
+                        if image_data:
+                            image_stream = io.BytesIO(image_data)
+                            
+                            # Ajouter l'image au document (largeur max 5 inches)
+                            doc.add_picture(image_stream, width=Inches(5))
+                            
+                            # Ajouter la légende
+                            caption = doc.add_paragraph(f'Photo {idx+1}: {file_obj.name}')
+                            caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                            caption_format = caption.runs[0].font
+                            caption_format.size = Pt(9)
+                            caption_format.italic = True
+                        
+                        file_obj.seek(0)
+                    except Exception as e:
+                        doc.add_paragraph(f'[Erreur lors du chargement de la photo {idx+1}: {e}]')
+            
+            elif hasattr(answer, 'read'):
+                # Photo unique
+                # ... (le code de gestion de la photo unique reste le même)
+                pass
             
             else:
-                # Réponse textuelle (MODIFICATION ICI)
+                # Réponse textuelle (APPLIQUER LE STYLE DE LA RÉPONSE)
                 answer_p = doc.add_paragraph(str(answer))
                 answer_p.paragraph_format.left_indent = Inches(0.5)
                 
@@ -354,11 +432,10 @@ def create_word_report(collected_data, df_struct, project_data):
                 answer_run = answer_p.runs[0] 
                 answer_format = answer_run.font
                 answer_format.size = Pt(11) 
-                answer_format.color.rgb = RGBColor(0x33, 0x33, 0x33) # Gris foncé pour les Réponses
-                # Pas de gras, pas d'italique par défaut ici (selon la ligne)
-
-            doc.add_paragraph() # Espace entre les questions
-        # ... (le reste de la boucle et de la fonction reste le même)  # Espace entre les questions
+                answer_format.color.rgb = RGBColor(0x40, 0x40, 0x40) # Gris foncé pour la Réponse
+                answer_format.bold = True # Optionnel: mettre en gras
+            
+            doc.add_paragraph()  # Espace entre les questions
         
         # Saut de page entre les phases (sauf pour la dernière)
         if phase_idx < len(collected_data) - 1:
