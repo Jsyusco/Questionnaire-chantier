@@ -291,119 +291,239 @@ def create_zip_export(collected_data):
     zip_buffer.seek(0)
     return zip_buffer
 
+import io
+from docx import Document
+from docx.shared import Inches, Pt, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.style import WD_STYLE_TYPE
+from docx.enum.table import WD_ALIGN_VERTICAL
+from docx.enum.section import WD_SECTION
+from datetime import datetime
+
+# --- Définitions de style ---
+
+def define_custom_styles(doc):
+    """
+    Définit et configure les trois styles de mise en forme (Titre, Sous-titre, Texte).
+    """
+    
+    # 1. Style "Report Title" (Pour le titre principal)
+    try:
+        title_style = doc.styles.add_style('Report Title', WD_STYLE_TYPE.PARAGRAPH)
+    except:
+        title_style = doc.styles['Report Title'] # Si déjà créé
+    
+    title_style.base_style = doc.styles['Heading 1']
+    title_font = title_style.font
+    title_font.name = 'Arial'
+    title_font.size = Pt(20)
+    title_font.bold = True
+    title_font.color.rgb = RGBColor(0x1F, 0x49, 0x7D) # Bleu foncé
+    title_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    title_style.paragraph_format.space_after = Pt(20)
+
+    # 2. Style "Report Subtitle" (Pour les sections, Phases)
+    try:
+        subtitle_style = doc.styles.add_style('Report Subtitle', WD_STYLE_TYPE.PARAGRAPH)
+    except:
+        subtitle_style = doc.styles['Report Subtitle']
+        
+    subtitle_style.base_style = doc.styles['Heading 2']
+    subtitle_font = subtitle_style.font
+    subtitle_font.name = 'Arial'
+    subtitle_font.size = Pt(14)
+    subtitle_font.bold = True
+    subtitle_font.color.rgb = RGBColor(0x38, 0x5D, 0x8A) # Bleu moyen
+    subtitle_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    subtitle_style.paragraph_format.space_after = Pt(10)
+
+    # 3. Style "Report Text" (Pour les paragraphes, contenu des tableaux)
+    try:
+        text_style = doc.styles.add_style('Report Text', WD_STYLE_TYPE.PARAGRAPH)
+    except:
+        text_style = doc.styles['Report Text']
+        
+    text_style.base_style = doc.styles['Normal']
+    text_font = text_style.font
+    text_font.name = 'Calibri'
+    text_font.size = Pt(11)
+    text_font.color.rgb = RGBColor(0x00, 0x00, 0x00) # Noir
+    text_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    text_style.paragraph_format.space_after = Pt(5)
+
+    # Définir le style "Report Text" comme le style Normal par défaut du document
+    doc.styles['Normal'].font.name = 'Calibri'
+    doc.styles['Normal'].font.size = Pt(11)
+
+# --- Fonction principale modifiée ---
+
 def create_word_report(collected_data, df_struct, project_data):
     """
     Crée un rapport Word avec toutes les questions et les photos
     """
+    # Assurez-vous d'importer les modules nécessaires au début du script
+    # import io, docx.shared.Pt, docx.shared.RGBColor, docx.enum.text.WD_ALIGN_PARAGRAPH, etc.
+
     doc = Document()
+    define_custom_styles(doc) # <--- Appel pour définir les styles
     
-    # Style du document
-    style = doc.styles['Normal']
-    font = style.font
-    font.name = 'Calibri'
-    font.size = Pt(11)
+    # En-tête (Utilisation du style "Report Title")
+    doc.add_paragraph('Rapport d\'Audit Chantier', style='Report Title')
+
+    # Informations du projet (Utilisation du style "Report Subtitle")
+    doc.add_paragraph('Informations du Projet', style='Report Subtitle')
     
-    # En-tête
-    header = doc.add_heading('Rapport d\'Audit Chantier', 0)
-    header.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    
-    # Informations du projet
-    doc.add_heading('Informations du Projet', level=1)
+    # Tableau d'informations (reste inchangé pour l'instant)
     project_table = doc.add_table(rows=3, cols=2)
     project_table.style = 'Light Grid Accent 1'
     
+    # Remplir le tableau
     project_table.rows[0].cells[0].text = 'Intitulé'
     project_table.rows[0].cells[1].text = str(project_data.get('Intitulé', 'N/A'))
+    # Les variables 'st.session_state' et 'datetime' doivent être définies ou importées
+    try:
+        start_time_str = st.session_state.get('form_start_time', datetime.now()).strftime('%d/%m/%Y %H:%M')
+    except NameError:
+        start_time_str = datetime.now().strftime('%d/%m/%Y %H:%M') # Fallback si st n'est pas défini
+        
     project_table.rows[1].cells[0].text = 'Date de début'
-    project_table.rows[1].cells[1].text = st.session_state.get('form_start_time', datetime.now()).strftime('%d/%m/%Y %H:%M')
+    project_table.rows[1].cells[1].text = start_time_str
+    
     project_table.rows[2].cells[0].text = 'Date de fin'
     project_table.rows[2].cells[1].text = datetime.now().strftime('%d/%m/%Y %H:%M')
     
+    # Assurez-vous que le texte dans les cellules utilise le style "Normal" ou "Report Text"
+    for row in project_table.rows:
+        for cell in row.cells:
+            for paragraph in cell.paragraphs:
+                paragraph.style = 'Report Text'
+    
     doc.add_paragraph()
     
-    # Détails du projet
-    doc.add_heading('Détails du Projet', level=2)
-    for group in DISPLAY_GROUPS:
-        for field_key in group:
-            renamed_key = PROJECT_RENAME_MAP.get(field_key, field_key)
-            value = project_data.get(field_key, 'N/A')
-            p = doc.add_paragraph()
-            p.add_run(f'{renamed_key}: ').bold = True
-            p.add_run(str(value))
+    # Détails du projet (Utilisation du style "Report Subtitle")
+    doc.add_paragraph('Détails du Projet', style='Report Subtitle')
+    
+    # Les variables DISPLAY_GROUPS et PROJECT_RENAME_MAP doivent être définies.
+    # On garde le format paragraphe pour les détails, mais en utilisant le style "Report Text"
+    try:
+        for group in DISPLAY_GROUPS:
+            for field_key in group:
+                renamed_key = PROJECT_RENAME_MAP.get(field_key, field_key)
+                value = project_data.get(field_key, 'N/A')
+                p = doc.add_paragraph(style='Report Text')
+                p.add_run(f'{renamed_key}: ').bold = True
+                p.add_run(str(value))
+    except NameError:
+        doc.add_paragraph("Variables DISPLAY_GROUPS et/ou PROJECT_RENAME_MAP non définies. Passage à la suite.")
     
     doc.add_page_break()
     
     # Parcourir toutes les phases
     for phase_idx, phase in enumerate(collected_data):
         phase_name = phase['phase_name']
-        doc.add_heading(f'Phase: {phase_name}', level=1)
+        # Ajout de l'en-tête de phase (Utilisation du style "Report Subtitle")
+        doc.add_paragraph(f'Phase: {phase_name}', style='Report Subtitle')
         
         # Parcourir toutes les questions de cette phase
         for q_id, answer in phase['answers'].items():
+            
             # Récupérer le texte de la question
             if int(q_id) == 100:
                 q_text = "Commentaire Écart Photo"
             else:
-                q_row = df_struct[df_struct['id'] == int(q_id)]
-                q_text = q_row.iloc[0]['question'] if not q_row.empty else f"Question ID {q_id}"
+                # La variable df_struct doit être un DataFrame pandas
+                if 'df_struct' in locals() and not df_struct.empty:
+                    q_row = df_struct[df_struct['id'] == int(q_id)]
+                    q_text = q_row.iloc[0]['question'] if not q_row.empty else f"Question ID {q_id}"
+                else:
+                    q_text = f"Question ID {q_id}" # Fallback si df_struct n'est pas un DataFrame ou non défini
             
-            # Ajouter la question
-            question_p = doc.add_paragraph()
-            question_p.add_run(f'Q{q_id}: {q_text}').bold = True
-            
-            # Gérer la réponse selon son type
+            # Vérifier si c'est une réponse de type photo
+            is_photo_answer = False
             if isinstance(answer, list) and answer and hasattr(answer[0], 'read'):
-                # Liste de photos
-                doc.add_paragraph(f'Nombre de photos: {len(answer)}')
+                is_photo_answer = True
+            elif hasattr(answer, 'read'):
+                is_photo_answer = True
                 
-                for idx, file_obj in enumerate(answer):
+            
+            if is_photo_answer:
+                # --- Affichage des photos (inchangé, mais utilise un style de légende plus cohérent) ---
+                
+                # Ajouter la question comme un sous-titre de la section photo
+                doc.add_paragraph(f'Q{q_id}: {q_text}', style='Report Subtitle')
+
+                if isinstance(answer, list):
+                     doc.add_paragraph(f'Nombre de photos: {len(answer)}', style='Report Text')
+                     for idx, file_obj in enumerate(answer):
+                         try:
+                             file_obj.seek(0)
+                             image_data = file_obj.read()
+                             if image_data:
+                                 image_stream = io.BytesIO(image_data)
+                                 # Ajouter l'image
+                                 doc.add_picture(image_stream, width=Inches(5))
+                                 
+                                 # Ajouter la légende
+                                 caption = doc.add_paragraph(f'Photo {idx+1}: {file_obj.name}', style='Report Text')
+                                 caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                                 # Formatage de la légende dans le style "Report Text"
+                                 caption_run = caption.runs[0]
+                                 caption_run.font.size = Pt(9)
+                                 caption_run.font.italic = True
+                                 
+                                 file_obj.seek(0)
+                         except Exception as e:
+                             doc.add_paragraph(f'[Erreur lors du chargement de la photo {idx+1}: {e}]', style='Report Text')
+                             
+                elif hasattr(answer, 'read'):
+                    # Photo unique
                     try:
-                        file_obj.seek(0)
-                        image_data = file_obj.read()
-                        
+                        answer.seek(0)
+                        image_data = answer.read()
                         if image_data:
-                            # Créer un objet BytesIO pour l'image
                             image_stream = io.BytesIO(image_data)
-                            
-                            # Ajouter l'image au document (largeur max 6 inches)
                             doc.add_picture(image_stream, width=Inches(5))
                             
-                            # Ajouter la légende
-                            caption = doc.add_paragraph(f'Photo {idx+1}: {file_obj.name}')
+                            caption = doc.add_paragraph(f'Photo: {answer.name}', style='Report Text')
                             caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                            caption_format = caption.runs[0].font
-                            caption_format.size = Pt(9)
-                            caption_format.italic = True
-                        
-                        file_obj.seek(0)
+                            # Formatage de la légende dans le style "Report Text"
+                            caption_run = caption.runs[0]
+                            caption_run.font.size = Pt(9)
+                            caption_run.font.italic = True
+                            
+                            answer.seek(0)
                     except Exception as e:
-                        doc.add_paragraph(f'[Erreur lors du chargement de la photo {idx+1}: {e}]')
-            
-            elif hasattr(answer, 'read'):
-                # Photo unique
-                try:
-                    answer.seek(0)
-                    image_data = answer.read()
-                    
-                    if image_data:
-                        image_stream = io.BytesIO(image_data)
-                        doc.add_picture(image_stream, width=Inches(5))
-                        caption = doc.add_paragraph(f'Photo: {answer.name}')
-                        caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                        caption_format = caption.runs[0].font
-                        caption_format.size = Pt(9)
-                        caption_format.italic = True
-                    
-                    answer.seek(0)
-                except Exception as e:
-                    doc.add_paragraph(f'[Erreur lors du chargement de la photo: {e}]')
-            
+                        doc.add_paragraph(f'[Erreur lors du chargement de la photo: {e}]', style='Report Text')
+                
+                doc.add_paragraph() # Espace après les photos
+
             else:
-                # Réponse textuelle
-                answer_p = doc.add_paragraph(str(answer))
-                answer_p.paragraph_format.left_indent = Inches(0.5)
-            
-            doc.add_paragraph()  # Espace entre les questions
+                # --- Affichage des autres réponses sous forme de tableau ---
+                
+                table = doc.add_table(rows=1, cols=2)
+                table.style = 'Light Grid Accent 4' # Style de tableau pour le questionnaire
+                
+                # Cellule Question
+                q_cell = table.cell(0, 0)
+                q_cell.text = f'Q{q_id}: {q_text}'
+                q_cell.width = Inches(3.0) # Ajustez la largeur si nécessaire
+                
+                # Cellule Réponse
+                a_cell = table.cell(0, 1)
+                a_cell.text = str(answer)
+                a_cell.width = Inches(3.0) # Ajustez la largeur si nécessaire
+                
+                # Appliquer le style au texte du tableau
+                for cell in table.rows[0].cells:
+                    cell.paragraphs[0].style = 'Report Text'
+                    cell.paragraphs[0].paragraph_format.left_indent = None # Annuler l'indentation de 0.5 inches
+                    # Pour centrer verticalement le texte dans les cellules
+                    cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER 
+                    
+                # Mettre la question en gras
+                q_cell.paragraphs[0].runs[0].bold = True
+                
+                doc.add_paragraph() # Espace entre les tableaux/questions
         
         # Saut de page entre les phases (sauf pour la dernière)
         if phase_idx < len(collected_data) - 1:
@@ -854,7 +974,6 @@ elif st.session_state['step'] == 'FINISHED':
             )
 
             if success:
-                st.balloons()
                 st.success(f"Données textuelles sauvegardées sur Firestore ! (ID: {submission_id_returned})")
                 st.session_state['data_saved'] = True
             else:
