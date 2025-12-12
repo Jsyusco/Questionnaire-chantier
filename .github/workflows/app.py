@@ -367,7 +367,7 @@ def create_word_report(collected_data, df_struct, project_data):
     
     # Tableau d'informations (reste inchangé pour l'instant)
     project_table = doc.add_table(rows=3, cols=2)
-    project_table.style = 'Light Grid Accent 8'
+    project_table.style = 'Medium Grid 1 Accent 1'
     
     # Remplir le tableau
     project_table.rows[0].cells[0].text = 'Intitulé'
