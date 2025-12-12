@@ -974,7 +974,7 @@ elif st.session_state['step'] == 'FINISHED':
                     st.rerun()
     else:
         st.info("Les données ont déjà été sauvegardées")
-        st.warning('Il est attendu que vous téléchargiez le rapport pour le transmettre à votre interlécuteur Yusco', icon="⚠️")
+        st.warning('Il est attendu que vous téléchargiez le rapport Word ci-dessous pour le transmettre à votre interlécuteur Yusco', icon="⚠️")
 
     st.markdown("---")
     
