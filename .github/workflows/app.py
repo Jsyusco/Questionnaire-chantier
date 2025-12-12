@@ -956,7 +956,7 @@ elif st.session_state['step'] == 'FINISHED':
     st.markdown("## 🎉 Formulaire Terminé")
     project_name = st.session_state['project_data'].get('Intitulé', 'Projet Inconnu')
     st.write(f"Projet : **{project_name}**")
-    st.warning('Il est attendu que vous téléchargiez le rapport Word ci-dessous pour le transmettre à votre interlécuteur Yusco', icon="⚠️")
+    st.warning('Il est attendu que vous téléchargiez le rapport Word ci-dessous pour le transmettre à votre interlocuteur Yusco', icon="⚠️")
     
     
     # 1. SAUVEGARDE FIREBASE
@@ -1027,7 +1027,6 @@ elif st.session_state['step'] == 'FINISHED':
                         mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                         use_container_width=True
                     )
-                    st.success("✅ Rapport Word généré avec succès !")
             except Exception as e:
                 st.error(f"Erreur lors de la génération du rapport Word : {e}")
     
