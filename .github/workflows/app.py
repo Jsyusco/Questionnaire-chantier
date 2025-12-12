@@ -1027,7 +1027,7 @@ elif st.session_state['step'] == 'FINISHED':
                         mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                         use_container_width=True
                     )
-                st.success("✅ Rapport Word généré avec succès !")
+                    st.success("✅ Rapport Word généré avec succès !")
             except Exception as e:
                 st.error(f"Erreur lors de la génération du rapport Word : {e}")
     
