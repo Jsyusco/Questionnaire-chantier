@@ -796,7 +796,7 @@ elif st.session_state['step'] == 'PROJECT':
                 st.session_state['show_comment_on_error'] = False
                 st.rerun()
 
-elif st.session_state['step'] == 'IDENTIFICATION':
+elif st.session_state['step'] == 'Identification':
     df = st.session_state['df_struct']
     ID_SECTION_NAME = df['section'].iloc[0]
     st.markdown(f"### 👤 Étape unique : {ID_SECTION_NAME}")
