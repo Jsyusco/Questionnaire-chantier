@@ -790,7 +790,7 @@ elif st.session_state['step'] == 'PROJECT':
                 st.session_state['project_data'] = row.to_dict()
                 st.session_state['form_start_time'] = datetime.now() 
                 st.session_state['submission_id'] = str(uuid.uuid4())
-                st.session_state['step'] = 'IDENTIFICATION'
+                st.session_state['step'] = 'Identification'
                 st.session_state['current_phase_temp'] = {}
                 st.session_state['iteration_id'] = str(uuid.uuid4())
                 st.session_state['show_comment_on_error'] = False
