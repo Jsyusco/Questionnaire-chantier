@@ -975,8 +975,6 @@ elif st.session_state['step'] == 'FINISHED':
     else:
         st.info("Les données ont déjà été sauvegardées")
         st.warning('Il est attendu que vous téléchargiez le rapport Word ci-dessous pour le transmettre à votre interlécuteur Yusco', icon="⚠️")
-
-    st.markdown("---")
     
     if st.session_state['data_saved']:
         # Préparation des exports
