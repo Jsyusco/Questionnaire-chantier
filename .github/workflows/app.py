@@ -975,6 +975,7 @@ elif st.session_state['step'] == 'FINISHED':
                 if st.button("Réessayer la sauvegarde"):
                     st.rerun()
     else:
+        st.info("Les données son prête à être téléchargées")
 
     if st.session_state['data_saved']:
         # Préparation des exports
