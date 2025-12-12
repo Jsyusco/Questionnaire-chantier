@@ -367,7 +367,7 @@ def create_word_report(collected_data, df_struct, project_data):
     
     # Tableau d'informations (reste inchangé pour l'instant)
     project_table = doc.add_table(rows=3, cols=2)
-    project_table.style = 'Medium  List 1'
+    project_table.style = 'Medium  List'
     
     # Remplir le tableau
     project_table.rows[0].cells[0].text = 'Intitulé'
@@ -493,7 +493,7 @@ def create_word_report(collected_data, df_struct, project_data):
                 # --- Affichage des autres réponses sous forme de tableau ---
                 
                 table = doc.add_table(rows=1, cols=2)
-                table.style = 'Medium  List 1' # Style de tableau pour le questionnaire
+                table.style = 'Medium  List' # Style de tableau pour le questionnaire
                 
                 # Cellule Question
                 q_cell = table.cell(0, 0)
