@@ -975,8 +975,7 @@ elif st.session_state['step'] == 'FINISHED':
                 if st.button("Réessayer la sauvegarde"):
                     st.rerun()
     else:
-        st.info("Les données ont déjà été sauvegardées")
-       
+
     if st.session_state['data_saved']:
         # Préparation des exports
         csv_data = create_csv_export(st.session_state['collected_data'], st.session_state['df_struct'])
