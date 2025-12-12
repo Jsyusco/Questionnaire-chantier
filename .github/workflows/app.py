@@ -974,7 +974,7 @@ elif st.session_state['step'] == 'FINISHED':
                 if st.button("Réessayer la sauvegarde"):
                     st.rerun()
     else:
-        st.info("Les données ont déjà été sauvegardées sur Firestore.")
+        st.info("Les données ont déjà été sauvegardées")
 
     st.markdown("---")
     
