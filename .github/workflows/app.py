@@ -367,7 +367,7 @@ def create_word_report(collected_data, df_struct, project_data):
     
     # Tableau d'informations (reste inchangé pour l'instant)
     project_table = doc.add_table(rows=3, cols=2)
-    project_table.style = 'Light List Accent 1'
+    project_table.style = 'Light Grid Accent 1'
     
     # Remplir le tableau
     project_table.rows[0].cells[0].text = 'Intitulé'
@@ -493,7 +493,7 @@ def create_word_report(collected_data, df_struct, project_data):
                 # --- Affichage des autres réponses sous forme de tableau ---
                 
                 table = doc.add_table(rows=1, cols=2)
-                table.style = 'Light List Accent 1' # Style de tableau pour le questionnaire
+                table.style = 'Light Grid Accent 4' # Style de tableau pour le questionnaire
                 
                 # Cellule Question
                 q_cell = table.cell(0, 0)
@@ -987,7 +987,7 @@ elif st.session_state['step'] == 'FINISHED':
         # --- 2. TÉLÉCHARGEMENT DIRECT ---
         st.markdown("### 📥 Télécharger les fichiers")
         
-        col_csv, col_zip, col_word = st.columns(2) 
+        col_csv, col_zip, col_word = st.columns(3)
         
         file_name_csv = f"Export_{project_name}_{date_str}.csv"
         with col_csv:
