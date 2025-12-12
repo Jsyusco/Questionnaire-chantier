@@ -9,10 +9,16 @@ import numpy as np
 import zipfile
 import io
 import urllib.parse
+import base64
+import io
 from docx import Document
 from docx.shared import Inches, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-import base64
+from docx.enum.style import WD_STYLE_TYPE
+from docx.enum.table import WD_ALIGN_VERTICAL
+from docx.enum.section import WD_SECTION
+from datetime import datetime
+
 
 # --- CONFIGURATION ET STYLE (inchangés) ---
 st.set_page_config(page_title="Formulaire Dynamique - Firestore", layout="centered")
@@ -291,15 +297,6 @@ def create_zip_export(collected_data):
     zip_buffer.seek(0)
     return zip_buffer
 
-import io
-from docx import Document
-from docx.shared import Inches, Pt, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.style import WD_STYLE_TYPE
-from docx.enum.table import WD_ALIGN_VERTICAL
-from docx.enum.section import WD_SECTION
-from datetime import datetime
-
 # --- Définitions de style ---
 
 def define_custom_styles(doc):
@@ -318,7 +315,7 @@ def define_custom_styles(doc):
     title_font.name = 'Arial'
     title_font.size = Pt(20)
     title_font.bold = True
-    title_font.color.rgb = RGBColor(0x1F, 0x49, 0x7D) # Bleu foncé
+    title_font.color.rgb = RGBColor(0x01, 0x38, 0x2D)# Bleu foncé
     title_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
     title_style.paragraph_format.space_after = Pt(20)
 
@@ -333,7 +330,7 @@ def define_custom_styles(doc):
     subtitle_font.name = 'Arial'
     subtitle_font.size = Pt(14)
     subtitle_font.bold = True
-    subtitle_font.color.rgb = RGBColor(0x38, 0x5D, 0x8A) # Bleu moyen
+    subtitle_font.color.rgb = RGBColor(0x00, 0x56, 0x47) # Bleu moyen
     subtitle_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT
     subtitle_style.paragraph_format.space_after = Pt(10)
 
@@ -429,7 +426,7 @@ def create_word_report(collected_data, df_struct, project_data):
             
             # Récupérer le texte de la question
             if int(q_id) == 100:
-                q_text = "Commentaire Écart Photo"
+                q_text = "Commentaire explicatif de l'écart photo par rapport au nombre attendu"
             else:
                 # La variable df_struct doit être un DataFrame pandas
                 if 'df_struct' in locals() and not df_struct.empty:
@@ -506,12 +503,12 @@ def create_word_report(collected_data, df_struct, project_data):
                 # Cellule Question
                 q_cell = table.cell(0, 0)
                 q_cell.text = f'Q{q_id}: {q_text}'
-                q_cell.width = Inches(3.0) # Ajustez la largeur si nécessaire
+                q_cell.width = Inches(5.0) # Ajustez la largeur si nécessaire
                 
                 # Cellule Réponse
                 a_cell = table.cell(0, 1)
                 a_cell.text = str(answer)
-                a_cell.width = Inches(3.0) # Ajustez la largeur si nécessaire
+                a_cell.width = Inches(1.0) # Ajustez la largeur si nécessaire
                 
                 # Appliquer le style au texte du tableau
                 for cell in table.rows[0].cells:
