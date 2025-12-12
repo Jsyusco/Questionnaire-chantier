@@ -10,13 +10,16 @@ import zipfile
 import io
 import urllib.parse
 import base64
-import io
 from docx import Document
-from docx.shared import Inches, Pt, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.shared import Pt, RGBColor, Inches, Cm # Ajout de Cm
 from docx.enum.style import WD_STYLE_TYPE
-from docx.enum.table import WD_ALIGN_VERTICAL
-from docx.enum.section import WD_SECTION
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_ALIGN_VERTICAL, WD_ALIGN_TABLE # Ajout de WD_ALIGN_TABLE
+# Importations nécessaires pour les bordures
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
+
+import io
 from datetime import datetime
 
 
@@ -297,20 +300,6 @@ def create_zip_export(collected_data):
     zip_buffer.seek(0)
     return zip_buffer
 
-# --- Définitions de style ---
-
-from docx import Document
-from docx.shared import Pt, RGBColor, Inches, Cm # Ajout de Cm
-from docx.enum.style import WD_STYLE_TYPE
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.table import WD_ALIGN_VERTICAL, WD_ALIGN_TABLE # Ajout de WD_ALIGN_TABLE
-# Importations nécessaires pour les bordures
-from docx.oxml.ns import qn
-from docx.oxml import OxmlElement
-
-import io
-from datetime import datetime
-# ... (Les variables st, df_struct, etc. sont présumées gérées)
 
 # --- NOUVELLES FONCTIONS UTILITAIRES POUR LA MISE EN FORME DES TABLES ---
 
@@ -1113,3 +1102,4 @@ elif st.session_state['step'] == 'FINISHED':
     if st.button("🔄 Recommencer l'audit"):
         st.session_state.clear()
         st.rerun()
+    
