@@ -987,7 +987,7 @@ elif st.session_state['step'] == 'FINISHED':
         # --- 2. TÉLÉCHARGEMENT DIRECT ---
         st.markdown("### 📥 Télécharger les fichiers")
         
-        "col_csv," col_zip, col_word = st.columns(2)
+       col_zip, col_word = st.columns(2) # col_csv,
         
       #  file_name_csv = f"Export_{project_name}_{date_str}.csv"
       #  with col_csv:
