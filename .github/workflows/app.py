@@ -493,7 +493,7 @@ def create_word_report(collected_data, df_struct, project_data):
                 # --- Affichage des autres réponses sous forme de tableau ---
                 
                 table = doc.add_table(rows=1, cols=2)
-                table.style = 'Light Grid Accent 9' # Style de tableau pour le questionnaire
+                table.style = 'Light Grid Accent 1' # Style de tableau pour le questionnaire
                 
                 # Cellule Question
                 q_cell = table.cell(0, 0)
