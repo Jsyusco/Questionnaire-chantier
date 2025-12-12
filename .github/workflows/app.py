@@ -493,7 +493,7 @@ def create_word_report(collected_data, df_struct, project_data):
                 # --- Affichage des autres réponses sous forme de tableau ---
                 
                 table = doc.add_table(rows=1, cols=2)
-                table.style = 'Light Grid Accent 4' # Style de tableau pour le questionnaire
+                table.style = 'Light Grid Accent 1' # Style de tableau pour le questionnaire
                 
                 # Cellule Question
                 q_cell = table.cell(0, 0)
@@ -956,6 +956,8 @@ elif st.session_state['step'] == 'FINISHED':
     st.markdown("## 🎉 Formulaire Terminé")
     project_name = st.session_state['project_data'].get('Intitulé', 'Projet Inconnu')
     st.write(f"Projet : **{project_name}**")
+     st.warning('Il est attendu que vous téléchargiez le rapport Word ci-dessous pour le transmettre à votre interlécuteur Yusco', icon="⚠️")
+    
     
     # 1. SAUVEGARDE FIREBASE
     if not st.session_state['data_saved']:
@@ -974,8 +976,7 @@ elif st.session_state['step'] == 'FINISHED':
                     st.rerun()
     else:
         st.info("Les données ont déjà été sauvegardées")
-        st.warning('Il est attendu que vous téléchargiez le rapport Word ci-dessous pour le transmettre à votre interlécuteur Yusco', icon="⚠️")
-    
+       
     if st.session_state['data_saved']:
         # Préparation des exports
         csv_data = create_csv_export(st.session_state['collected_data'], st.session_state['df_struct'])
