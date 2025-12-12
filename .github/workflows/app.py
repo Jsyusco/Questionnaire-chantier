@@ -12,6 +12,9 @@ import urllib.parse
 from docx import Document
 from docx.shared import Inches, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.style import WD_STYLE_TYPE
+from docx.enum.table import WD_ALIGN_VERTICAL
+from docx.enum.section import WD_SECTION
 import base64
 
 # --- CONFIGURATION ET STYLE (inchangés) ---
