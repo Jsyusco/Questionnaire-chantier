@@ -987,17 +987,17 @@ elif st.session_state['step'] == 'FINISHED':
         # --- 2. TÉLÉCHARGEMENT DIRECT ---
         st.markdown("### 📥 Télécharger les fichiers")
         
-       col_zip, col_word = st.columns(2) # col_csv,
+       col_csv, col_zip, col_word = st.columns(2) 
         
-      #  file_name_csv = f"Export_{project_name}_{date_str}.csv"
-      #  with col_csv:
-      #      st.download_button(
-      #          label="📄 CSV", 
-      #          data=csv_data, 
-      #          file_name=file_name_csv, 
-      #         mime='text/csv',
-      #          use_container_width=True
-      #     )
+        file_name_csv = f"Export_{project_name}_{date_str}.csv"
+        with col_csv:
+            st.download_button(
+                label="📄 CSV", 
+                data=csv_data, 
+                file_name=file_name_csv, 
+               mime='text/csv',
+                use_container_width=True
+           )
 
         if zip_buffer:
             file_name_zip = f"Photos_{project_name}_{date_str}.zip"
