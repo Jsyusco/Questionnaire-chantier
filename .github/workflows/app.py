@@ -967,7 +967,6 @@ elif st.session_state['step'] == 'FINISHED':
 
             if success:
                # st.success(f"Données textuelles sauvegardées ! (ID: {submission_id_returned})")
-                st.warning('Il est attendu que vous téléchargiez le rapport pour le transmettre à votre interlécuteur Yusco', icon="⚠️")
                 st.session_state['data_saved'] = True
             else:
                 st.error(f"Erreur lors de la sauvegarde : {submission_id_returned}")
@@ -975,6 +974,7 @@ elif st.session_state['step'] == 'FINISHED':
                     st.rerun()
     else:
         st.info("Les données ont déjà été sauvegardées")
+        st.warning('Il est attendu que vous téléchargiez le rapport pour le transmettre à votre interlécuteur Yusco', icon="⚠️")
 
     st.markdown("---")
     
