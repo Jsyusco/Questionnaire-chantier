@@ -966,8 +966,8 @@ elif st.session_state['step'] == 'FINISHED':
             )
 
             if success:
-                st.balloons()
-                st.success(f"Données textuelles sauvegardées sur Firestore ! (ID: {submission_id_returned})")
+               # st.success(f"Données textuelles sauvegardées ! (ID: {submission_id_returned})")
+                st.warning('Il est attendu que vous téléchargiez le rapport pour le transmettre à votre interlécuteur Yusco', icon="⚠️")
                 st.session_state['data_saved'] = True
             else:
                 st.error(f"Erreur lors de la sauvegarde : {submission_id_returned}")
