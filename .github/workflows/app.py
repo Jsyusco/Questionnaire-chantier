@@ -1,3 +1,4 @@
+
 # --- IMPORTS ET PRÉPARATION ---
 import streamlit as st
 import pandas as pd
@@ -8,12 +9,14 @@ from datetime import datetime
 import numpy as np
 import zipfile
 import io
-import json
-
-# --- IMPORTS AJOUTÉS POUR GOOGLE DRIVE ---
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
+import urllib.parse
+from docx import Document
+from docx.shared import Inches, Pt, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.style import WD_STYLE_TYPE
+from docx.enum.table import WD_ALIGN_VERTICAL
+from docx.enum.section import WD_SECTION
+import base64
 
 # --- CONFIGURATION ET STYLE (inchangés) ---
 st.set_page_config(page_title="Formulaire Dynamique - Firestore", layout="centered")
@@ -94,17 +97,17 @@ def initialize_firebase():
     if not firebase_admin._apps:
         try:
             cred_dict = {
-                "type": st.secrets["firebase_type"],
-                "project_id": st.secrets["firebase_project_id"],
-                "private_key_id": st.secrets["firebase_private_key_id"],
-                "private_key": st.secrets["firebase_private_key"].replace('\\n', '\n'),
-                "client_email": st.secrets["firebase_client_email"],
-                "client_id": st.secrets["firebase_client_id"],
-                "auth_uri": st.secrets["firebase_auth_uri"],
-                "token_uri": st.secrets["firebase_token_uri"],
-                "auth_provider_x509_cert_url": st.secrets["firebase_auth_provider_x509_cert_url"],
-                "client_x509_cert_url": st.secrets["firebase_client_x509_cert_url"],
-                "universe_domain": st.secrets["firebase_universe_domain"],
+                "type": st.secrets["firebase"]["type"],
+                "project_id": st.secrets["firebase"]["project_id"],
+                "private_key_id": st.secrets["firebase"]["private_key_id"],
+                "private_key": st.secrets["firebase"]["private_key"].replace('\\n', '\n'),
+                "client_email": st.secrets["firebase"]["client_email"],
+                "client_id": st.secrets["firebase"]["client_id"],
+                "auth_uri": st.secrets["firebase"]["auth_uri"],
+                "token_uri": st.secrets["firebase"]["token_uri"],
+                "auth_provider_x509_cert_url": st.secrets["firebase"]["auth_provider_x509_cert_url"],
+                "client_x509_cert_url": st.secrets["firebase"]["client_x509_cert_url"],
+                "universe_domain": st.secrets["firebase"]["universe_domain"],
             }
             
             project_id = cred_dict["project_id"]
@@ -113,7 +116,7 @@ def initialize_firebase():
             st.sidebar.success("Connexion BDD réussie 🟢")
         
         except KeyError as e:
-            st.sidebar.error(f"Erreur de configuration Secrets : Clé manquante ({e})")
+            st.sidebar.error(f"Erreur de configuration Secrets : Clé manquante dans la section [firebase] ({e})")
             st.stop()
         except Exception as e:
             st.sidebar.error(f"Erreur de connexion Firebase : {e}")
@@ -122,67 +125,10 @@ def initialize_firebase():
 
 db = initialize_firebase()
 
-# ---------------------------------------------------------
-# --- NOUVELLES FONCTIONS GOOGLE DRIVE (AJOUTÉES) ---
-# ---------------------------------------------------------
-
-def get_drive_service():
-    """Initialise et retourne le service Google Drive."""
-    try:
-        # On suppose que le JSON complet est dans st.secrets["google_drive"]["service_account_json"]
-        service_account_info = json.loads(st.secrets["google_drive"]["service_account_json"])
-        
-        creds = service_account.Credentials.from_service_account_info(
-            service_account_info,
-            scopes=['https://www.googleapis.com/auth/drive']
-        )
-        return build('drive', 'v3', credentials=creds)
-    except Exception as e:
-        st.error(f"Erreur d'initialisation Google Drive : {e}")
-        return None
-
-def upload_file_to_drive(file_obj, project_name, phase_name, drive_service):
-    """Uploade un fichier vers Drive et retourne son lien."""
-    try:
-        DRIVE_FOLDER_ID = st.secrets["google_drive"]["target_folder_id"]
-        
-        # Nettoyage du nom pour éviter les caractères spéciaux
-        sanitized_project = str(project_name).replace(' | ', '_').replace(' ', '_').replace('/', '_')
-        sanitized_phase = str(phase_name).replace(' ', '_').replace('/', '_')
-        file_name = f"{sanitized_project}_{sanitized_phase}_{file_obj.name}"
-        
-        file_metadata = {
-            'name': file_name,
-            'parents': [DRIVE_FOLDER_ID]
-        }
-        
-        # Important : Rembobiner le fichier avant lecture
-        file_obj.seek(0)
-        
-        media = MediaIoBaseUpload(io.BytesIO(file_obj.read()),
-                                  mimetype=file_obj.type,
-                                  resumable=True)
-        
-        uploaded_file = drive_service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id, webViewLink'
-        ).execute()
-        
-        # Rembobiner à nouveau pour d'autres usages éventuels (zip, etc.)
-        file_obj.seek(0)
-        
-        return uploaded_file.get('webViewLink')
-    except Exception as e:
-        st.error(f"Erreur upload Drive pour {file_obj.name}: {e}")
-        return None
-
-
-# --- FONCTIONS DE CHARGEMENT ET SAUVEGARDE FIREBASE (MODIFIÉE POUR DRIVE) ---
+# --- FONCTIONS DE CHARGEMENT ET SAUVEGARDE FIREBASE ---
 
 @st.cache_data(ttl=3600)
 def load_form_structure_from_firestore():
-    # Logique inchangée
     try:
         docs = db.collection('formsquestions').order_by('id').get()
         data = [doc.to_dict() for doc in docs]
@@ -214,7 +160,6 @@ def load_form_structure_from_firestore():
 
 @st.cache_data(ttl=3600)
 def load_site_data_from_firestore():
-    # Logique inchangée
     try:
         docs = db.collection('Sites').get()
         data = [doc.to_dict() for doc in docs]
@@ -225,16 +170,12 @@ def load_site_data_from_firestore():
     except Exception as e:
         return None
 
-def save_form_data(collected_data, project_data, drive_service=None):
+def save_form_data(collected_data, project_data):
     """
-    MODIFIÉE : Uploade les photos vers Drive et sauvegarde les liens dans Firestore.
+    Sauvegarde les données dans Firestore.
+    Pour les fichiers, on ne sauvegarde que les noms/métadonnées.
     """
     try:
-        # Si le service Drive n'est pas passé, on tente de l'initialiser
-        if drive_service is None:
-            drive_service = get_drive_service()
-            
-        project_name = project_data.get('Intitulé', 'Projet_Inconnu')
         cleaned_data = []
 
         for phase in collected_data:
@@ -243,35 +184,13 @@ def save_form_data(collected_data, project_data, drive_service=None):
                 "answers": {}
             }
             for k, v in phase["answers"].items():
-                
-                # --- LOGIQUE DRIVE ---
                 if isinstance(v, list) and v and hasattr(v[0], 'read'): 
-                    # C'est une liste de fichiers -> Upload Drive
-                    if drive_service:
-                        drive_links = []
-                        with st.spinner(f"Upload vers Drive : {phase['phase_name']}..."):
-                            for file_obj in v:
-                                link = upload_file_to_drive(file_obj, project_name, phase["phase_name"], drive_service)
-                                if link:
-                                    drive_links.append(link)
-                                else:
-                                    drive_links.append(f"Erreur upload: {file_obj.name}")
-                        
-                        clean_phase["answers"][str(k)] = drive_links
-                    else:
-                        # Fallback si Drive non configuré (comportement ancien)
-                        file_names = ", ".join([f.name for f in v])
-                        clean_phase["answers"][str(k)] = f"ÉCHEC DRIVE - Fichiers locaux : {file_names}"
+                    file_names = ", ".join([f.name for f in v])
+                    clean_phase["answers"][str(k)] = f"Fichiers (non stockés en DB): {file_names}"
                 
                 elif hasattr(v, 'read'): 
-                    # Cas rare d'un fichier unique non listé
-                    if drive_service:
-                        link = upload_file_to_drive(v, project_name, phase["phase_name"], drive_service)
-                        clean_phase["answers"][str(k)] = link if link else f"Erreur upload: {v.name}"
-                    else:
-                         clean_phase["answers"][str(k)] = f"Image chargée (Nom: {v.name})"
+                     clean_phase["answers"][str(k)] = f"Fichier (non stocké en DB): {v.name}"
                 else:
-                    # Donnée texte/nombre standard
                     clean_phase["answers"][str(k)] = v
             
             cleaned_data.append(clean_phase)
@@ -296,10 +215,9 @@ def save_form_data(collected_data, project_data, drive_service=None):
     except Exception as e:
         return False, str(e)
 
-# --- FONCTIONS EXPORT (MODIFIÉE POUR ZIP) ---
+# --- FONCTIONS EXPORT CSV, ZIP ET WORD ---
 
 def create_csv_export(collected_data, df_struct):
-    """Gère les listes de fichiers (maintenant URLs ou Objets) dans l'export CSV."""
     rows = []
     submission_id = st.session_state.get('submission_id', 'N/A')
     project_name = st.session_state['project_data'].get('Intitulé', 'Projet Inconnu')
@@ -318,21 +236,10 @@ def create_csv_export(collected_data, df_struct):
                 q_row = df_struct[df_struct['id'] == int(q_id)]
                 q_text = q_row.iloc[0]['question'] if not q_row.empty else f"Question ID {q_id}"
             
-            # Affichage dans le CSV
-            if isinstance(val, list) and val:
-                # Si ce sont des objets fichiers (avant save) ou des liens (après save ?)
-                # Note: collected_data contient les objets fichiers en mémoire. 
-                # Les liens sont dans Firestore. 
-                # Si on veut les liens dans le CSV exporté immédiatement, c'est complexe car collected_data n'est pas muté en place.
-                # On affiche le nom des fichiers pour l'instant.
-                if hasattr(val[0], 'name'):
-                    content = ", ".join([f.name for f in val])
-                    final_val = f"[Fichiers à uploader] {len(val)} photos: {content}"
-                else:
-                    # Cas où collected_data aurait été mis à jour avec des liens (si on le faisait)
-                    final_val = str(val)
+            if isinstance(val, list) and val and hasattr(val[0], 'name'):
+                final_val = f"[Pièces jointes] {len(val)} fichiers: " + ", ".join([f.name for f in val])
             elif hasattr(val, 'name'):
-                final_val = f"[Fichier] {val.name}"
+                final_val = f"[Pièce jointe] {val.name}"
             else:
                 final_val = str(val)
             
@@ -352,22 +259,275 @@ def create_csv_export(collected_data, df_struct):
 
 def create_zip_export(collected_data):
     """
-    MODIFIÉE : Crée un ZIP contenant un fichier texte explicatif au lieu des photos,
-    puisque les photos sont envoyées sur Drive.
+    Crée un ZIP contenant les photos présentes en mémoire.
+    CORRECTION: Gestion correcte des fichiers UploadedFile de Streamlit
     """
     zip_buffer = io.BytesIO()
     
-    with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-        # Création du message explicatif
-        msg = (
-            "Les photos de ce projet ont été automatiquement transférées vers Google Drive.\n"
-            "Veuillez consulter le dossier Google Drive correspondant au projet.\n\n"
-            f"ID Soumission : {st.session_state.get('submission_id', 'N/A')}\n"
-            f"Date : {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-        )
-        zip_file.writestr("LISEZ_MOI_PHOTOS_DRIVE.txt", msg)
-                    
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        files_added = 0
+        for phase in collected_data:
+            phase_name_clean = str(phase['phase_name']).replace("/", "_").replace(" ", "_")
+            
+            for q_id, answer in phase['answers'].items():
+                if isinstance(answer, list) and answer and hasattr(answer[0], 'read'):
+                    for idx, file_obj in enumerate(answer):
+                        try:
+                            # CORRECTION: Reset du pointeur et lecture
+                            file_obj.seek(0)
+                            file_content = file_obj.read()
+                            
+                            # Vérification que le contenu n'est pas vide
+                            if file_content:
+                                original_name = file_obj.name.split('/')[-1].split('\\')[-1]
+                                filename = f"{phase_name_clean}_Q{q_id}_{idx+1}_{original_name}"
+                                zip_file.writestr(filename, file_content)
+                                files_added += 1
+                            
+                            # Reset pour usage ultérieur
+                            file_obj.seek(0)
+                        except Exception as e:
+                            st.warning(f"Erreur lors de l'ajout du fichier {file_obj.name}: {e}")
+                            
+        info_txt = f"Export généré le {datetime.now()}\nNombre de fichiers : {files_added}"
+        zip_file.writestr("info.txt", info_txt)
+    
+    zip_buffer.seek(0)
     return zip_buffer
+
+def define_custom_styles(doc):
+    """
+    Définit et configure les trois styles de mise en forme (Titre, Sous-titre, Texte).
+    """
+    
+    # 1. Style "Report Title" (Pour le titre principal)
+    try:
+        title_style = doc.styles.add_style('Report Title', WD_STYLE_TYPE.PARAGRAPH)
+    except:
+        title_style = doc.styles['Report Title'] # Si déjà créé
+    
+    title_style.base_style = doc.styles['Heading 1']
+    title_font = title_style.font
+    title_font.name = 'Arial'
+    title_font.size = Pt(20)
+    title_font.bold = True
+    title_font.color.rgb = RGBColor(0x01, 0x38, 0x2D)# Bleu foncé
+    title_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    title_style.paragraph_format.space_after = Pt(20)
+
+    # 2. Style "Report Subtitle" (Pour les sections, Phases)
+    try:
+        subtitle_style = doc.styles.add_style('Report Subtitle', WD_STYLE_TYPE.PARAGRAPH)
+    except:
+        subtitle_style = doc.styles['Report Subtitle']
+        
+    subtitle_style.base_style = doc.styles['Heading 2']
+    subtitle_font = subtitle_style.font
+    subtitle_font.name = 'Arial'
+    subtitle_font.size = Pt(14)
+    subtitle_font.bold = True
+    subtitle_font.color.rgb = RGBColor(0x00, 0x56, 0x47) # Bleu moyen
+    subtitle_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    subtitle_style.paragraph_format.space_after = Pt(10)
+
+    # 3. Style "Report Text" (Pour les paragraphes, contenu des tableaux)
+    try:
+        text_style = doc.styles.add_style('Report Text', WD_STYLE_TYPE.PARAGRAPH)
+    except:
+        text_style = doc.styles['Report Text']
+        
+    text_style.base_style = doc.styles['Normal']
+    text_font = text_style.font
+    text_font.name = 'Calibri'
+    text_font.size = Pt(11)
+    text_font.color.rgb = RGBColor(0x00, 0x00, 0x00) # Noir
+    text_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    text_style.paragraph_format.space_after = Pt(5)
+
+    # Définir le style "Report Text" comme le style Normal par défaut du document
+    doc.styles['Normal'].font.name = 'Calibri'
+    doc.styles['Normal'].font.size = Pt(11)
+
+# --- Fonction principale modifiée ---
+
+def create_word_report(collected_data, df_struct, project_data):
+    """
+    Crée un rapport Word avec toutes les questions et les photos
+    """
+    # Assurez-vous d'importer les modules nécessaires au début du script
+    # import io, docx.shared.Pt, docx.shared.RGBColor, docx.enum.text.WD_ALIGN_PARAGRAPH, etc.
+
+    doc = Document()
+    define_custom_styles(doc) # <--- Appel pour définir les styles
+    
+    # En-tête (Utilisation du style "Report Title")
+    doc.add_paragraph('Rapport d\'Audit Chantier', style='Report Title')
+
+    # Informations du projet (Utilisation du style "Report Subtitle")
+    doc.add_paragraph('Informations du Projet', style='Report Subtitle')
+    
+    # Tableau d'informations (reste inchangé pour l'instant)
+    project_table = doc.add_table(rows=3, cols=2)
+    project_table.style = 'Light Grid Accent 1'
+    
+    # Remplir le tableau
+    project_table.rows[0].cells[0].text = 'Intitulé'
+    project_table.rows[0].cells[1].text = str(project_data.get('Intitulé', 'N/A'))
+    # Les variables 'st.session_state' et 'datetime' doivent être définies ou importées
+    try:
+        start_time_str = st.session_state.get('form_start_time', datetime.now()).strftime('%d/%m/%Y %H:%M')
+    except NameError:
+        start_time_str = datetime.now().strftime('%d/%m/%Y %H:%M') # Fallback si st n'est pas défini
+        
+    project_table.rows[1].cells[0].text = 'Date de début'
+    project_table.rows[1].cells[1].text = start_time_str
+    
+    project_table.rows[2].cells[0].text = 'Date de fin'
+    project_table.rows[2].cells[1].text = datetime.now().strftime('%d/%m/%Y %H:%M')
+    
+    # Assurez-vous que le texte dans les cellules utilise le style "Normal" ou "Report Text"
+    for row in project_table.rows:
+        for cell in row.cells:
+            for paragraph in cell.paragraphs:
+                paragraph.style = 'Report Text'
+    
+    doc.add_paragraph()
+    
+    # Détails du projet (Utilisation du style "Report Subtitle")
+    doc.add_paragraph('Détails du Projet', style='Report Subtitle')
+    
+    # Les variables DISPLAY_GROUPS et PROJECT_RENAME_MAP doivent être définies.
+    # On garde le format paragraphe pour les détails, mais en utilisant le style "Report Text"
+    try:
+        for group in DISPLAY_GROUPS:
+            for field_key in group:
+                renamed_key = PROJECT_RENAME_MAP.get(field_key, field_key)
+                value = project_data.get(field_key, 'N/A')
+                p = doc.add_paragraph(style='Report Text')
+                p.add_run(f'{renamed_key}: ').bold = True
+                p.add_run(str(value))
+    except NameError:
+        doc.add_paragraph("Variables DISPLAY_GROUPS et/ou PROJECT_RENAME_MAP non définies. Passage à la suite.")
+    
+    doc.add_page_break()
+    
+    # Parcourir toutes les phases
+    for phase_idx, phase in enumerate(collected_data):
+        phase_name = phase['phase_name']
+        # Ajout de l'en-tête de phase (Utilisation du style "Report Subtitle")
+        doc.add_paragraph(f'Phase: {phase_name}', style='Report Subtitle')
+        
+        # Parcourir toutes les questions de cette phase
+        for q_id, answer in phase['answers'].items():
+            
+            # Récupérer le texte de la question
+            if int(q_id) == 100:
+                q_text = "Commentaire explicatif de l'écart photo par rapport au nombre attendu"
+            else:
+                # La variable df_struct doit être un DataFrame pandas
+                if 'df_struct' in locals() and not df_struct.empty:
+                    q_row = df_struct[df_struct['id'] == int(q_id)]
+                    q_text = q_row.iloc[0]['question'] if not q_row.empty else f"Question ID {q_id}"
+                else:
+                    q_text = f"Question ID {q_id}" # Fallback si df_struct n'est pas un DataFrame ou non défini
+            
+            # Vérifier si c'est une réponse de type photo
+            is_photo_answer = False
+            if isinstance(answer, list) and answer and hasattr(answer[0], 'read'):
+                is_photo_answer = True
+            elif hasattr(answer, 'read'):
+                is_photo_answer = True
+                
+            
+            if is_photo_answer:
+                # --- Affichage des photos (inchangé, mais utilise un style de légende plus cohérent) ---
+                
+                # Ajouter la question comme un sous-titre de la section photo
+                doc.add_paragraph(f'Q{q_id}: {q_text}', style='Report Subtitle')
+
+                if isinstance(answer, list):
+                     doc.add_paragraph(f'Nombre de photos: {len(answer)}', style='Report Text')
+                     for idx, file_obj in enumerate(answer):
+                         try:
+                             file_obj.seek(0)
+                             image_data = file_obj.read()
+                             if image_data:
+                                 image_stream = io.BytesIO(image_data)
+                                 # Ajouter l'image
+                                 doc.add_picture(image_stream, width=Inches(5))
+                                 
+                                 # Ajouter la légende
+                                 caption = doc.add_paragraph(f'Photo {idx+1}: {file_obj.name}', style='Report Text')
+                                 caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                                 # Formatage de la légende dans le style "Report Text"
+                                 caption_run = caption.runs[0]
+                                 caption_run.font.size = Pt(9)
+                                 caption_run.font.italic = True
+                                 
+                                 file_obj.seek(0)
+                         except Exception as e:
+                             doc.add_paragraph(f'[Erreur lors du chargement de la photo {idx+1}: {e}]', style='Report Text')
+                             
+                elif hasattr(answer, 'read'):
+                    # Photo unique
+                    try:
+                        answer.seek(0)
+                        image_data = answer.read()
+                        if image_data:
+                            image_stream = io.BytesIO(image_data)
+                            doc.add_picture(image_stream, width=Inches(5))
+                            
+                            caption = doc.add_paragraph(f'Photo: {answer.name}', style='Report Text')
+                            caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                            # Formatage de la légende dans le style "Report Text"
+                            caption_run = caption.runs[0]
+                            caption_run.font.size = Pt(9)
+                            caption_run.font.italic = True
+                            
+                            answer.seek(0)
+                    except Exception as e:
+                        doc.add_paragraph(f'[Erreur lors du chargement de la photo: {e}]', style='Report Text')
+                
+                doc.add_paragraph() # Espace après les photos
+
+            else:
+                # --- Affichage des autres réponses sous forme de tableau ---
+                
+                table = doc.add_table(rows=1, cols=2)
+                table.style = 'Light Grid Accent 1' # Style de tableau pour le questionnaire
+                
+                # Cellule Question
+                q_cell = table.cell(0, 0)
+                q_cell.text = f'Q{q_id}: {q_text}'
+                q_cell.width = Inches(5.0) # Ajustez la largeur si nécessaire
+                
+                # Cellule Réponse
+                a_cell = table.cell(0, 1)
+                a_cell.text = str(answer)
+                a_cell.width = Inches(1.0) # Ajustez la largeur si nécessaire
+                
+                # Appliquer le style au texte du tableau
+                for cell in table.rows[0].cells:
+                    cell.paragraphs[0].style = 'Report Text'
+                    cell.paragraphs[0].paragraph_format.left_indent = None # Annuler l'indentation de 0.5 inches
+                    # Pour centrer verticalement le texte dans les cellules
+                    cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER 
+                    
+                # Mettre la question en gras
+                q_cell.paragraphs[0].runs[0].bold = True
+                
+                doc.add_paragraph() # Espace entre les tableaux/questions
+        
+        # Saut de page entre les phases (sauf pour la dernière)
+        if phase_idx < len(collected_data) - 1:
+            doc.add_page_break()
+    
+    # Sauvegarder dans un buffer
+    word_buffer = io.BytesIO()
+    doc.save(word_buffer)
+    word_buffer.seek(0)
+    
+    return word_buffer
 
 # --- GESTION DE L'ÉTAT (inchangée) ---
 def init_session_state():
@@ -417,7 +577,7 @@ def check_condition(row, current_answers, collected_data):
     except Exception: return True
 
 # -----------------------------------------------------------
-# --- FONCTION VALIDATION (Strictement identique à votre demande) ---
+# --- FONCTION VALIDATION (Identique) ---
 # -----------------------------------------------------------
 COMMENT_ID = 100
 COMMENT_QUESTION = "Veuillez préciser pourquoi le nombre de photo partagé ne correspond pas au minimum attendu"
@@ -430,17 +590,18 @@ def validate_section(df_questions, section_name, answers, collected_data):
     has_justification = comment_val is not None and str(comment_val).strip() != ""
     project_data = st.session_state.get('project_data', {})
     
-    expected_total, detail_str = get_expected_photo_count(section_name.strip(), project_data)
+    expected_total_base, detail_str = get_expected_photo_count(section_name.strip(), project_data)
+    expected_total = expected_total_base
     
     photo_question_count = sum(
         1 for _, row in section_rows.iterrows()
-        if str(row.get('type', '')).strip().lower() == 'photo'
+        if str(row.get('type', '')).strip().lower() == 'photo' and check_condition(row, answers, collected_data)
     )
     
     if expected_total is not None and expected_total > 0:
-        expected_total = expected_total * photo_question_count
+        expected_total = expected_total_base * photo_question_count
         detail_str = (
-            f"{detail_str} | Multiplieur questions photo: {photo_question_count} "
+            f"{detail_str} | Questions photo visibles: {photo_question_count} "
             f"-> Total ajusté: {expected_total}"
         )
 
@@ -448,7 +609,8 @@ def validate_section(df_questions, section_name, answers, collected_data):
     photo_questions_found = False
     
     for _, row in section_rows.iterrows():
-        if str(row['type']).strip().lower() == 'photo':
+        q_type = str(row['type']).strip().lower()
+        if q_type == 'photo' and check_condition(row, answers, collected_data):
             photo_questions_found = True
             q_id = int(row['id'])
             val = answers.get(q_id)
@@ -456,7 +618,7 @@ def validate_section(df_questions, section_name, answers, collected_data):
                 current_photo_count += len(val)
 
     is_count_sufficient = (
-        expected_total is None or expected_total == 0 or 
+        expected_total is None or expected_total <= 0 or 
         (expected_total > 0 and current_photo_count >= expected_total)
     )
     
@@ -470,11 +632,14 @@ def validate_section(df_questions, section_name, answers, collected_data):
         val = answers.get(q_id)
         
         if is_mandatory:
-            if q_type == 'photo' and (is_count_sufficient or has_justification):
-                continue
-            
+            if q_type == 'photo':
+                if is_count_sufficient or has_justification:
+                    continue
+                else:
+                    pass
+
             if isinstance(val, list):
-                if not val: missing.append(f"Question {q_id} : {row['question']} (photo(s) manquante(s))")
+                if not val: missing.append(f"Question {q_id} : {row['question']} (fichier(s) manquant(s))")
             elif val is None or val == "" or (isinstance(val, (int, float)) and val == 0):
                 missing.append(f"Question {q_id} : {row['question']}")
 
@@ -484,9 +649,9 @@ def validate_section(df_questions, section_name, answers, collected_data):
             is_photo_count_incorrect = True
             error_message = (
                 f"⚠️ **Écart de Photos pour '{str(section_name)}'**.\n\n"
-                f"Attendu : **{str(expected_total)}** (calculé : {str(detail_str)}).\n\n"
+                f"Attendu : **{str(expected_total)}** (calculé : {str(detail_str)}).\n"
                 f"Reçu : **{str(current_photo_count)}**.\n\n"
-                f"Veuillez remplir le champ de commentaire."
+                f"Le champ de commentaire doit être rempli."
             )
             if not has_justification:
                 missing.append(
@@ -545,7 +710,7 @@ def render_question(row, answers, phase_name, key_suffix, loop_index):
     
     elif q_type == 'number':
         if q_id == 9:
-            default_val = int(float(current_val)) if current_val is not None else 0
+            default_val = int(float(current_val)) if current_val is not None and str(current_val).replace('.', '', 1).isdigit() else 0
             val = st.number_input("Nombre (entier)", value=default_val, step=1, format="%d", key=widget_key, label_visibility="collapsed")
         else:
             default_val = float(current_val) if current_val and str(current_val).replace('.', '', 1).isdigit() else 0.0
@@ -554,7 +719,7 @@ def render_question(row, answers, phase_name, key_suffix, loop_index):
     elif q_type == 'photo':
         expected, details = get_expected_photo_count(phase_name.strip(), st.session_state.get('project_data'))
         if expected is not None and expected > 0:
-            st.info(f"📸 **Photos :** Il est attendu **{expected}** photos pour cette section (Total des bornes : {details}).")
+            st.info(f"📸 **Photos :** Il est attendu **{expected}** photos pour cette section (Base calculée : {details}).")
             st.divider()
 
         val = st.file_uploader("Images", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True, key=widget_key, label_visibility="collapsed")
@@ -589,7 +754,7 @@ if st.session_state['step'] == 'PROJECT_LOAD':
             st.session_state['step'] = 'PROJECT'
             st.rerun()
         else:
-            st.error("Impossible de charger les données.")
+            st.error("Impossible de charger les données. Vérifiez votre connexion et les secrets Firebase.")
             if st.button("Réessayer le chargement"):
                 load_form_structure_from_firestore.clear() 
                 load_site_data_from_firestore.clear() 
@@ -601,7 +766,7 @@ elif st.session_state['step'] == 'PROJECT':
     st.markdown("### 🏗️ Sélection du Chantier")
     
     if 'Intitulé' not in df_site.columns:
-        st.error("Colonne 'Intitulé' manquante.")
+        st.error("Colonne 'Intitulé' manquante dans les données 'Sites'.")
     else:
         search_term = st.text_input("Rechercher un projet (Veuillez renseigner au minimum 3 caractères pour le nom de la ville)", key="project_search_input").strip()
         filtered_projects = []
@@ -665,7 +830,7 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
         st.markdown(":orange-badge[**Détails du Projet sélectionné :**]")
         
         with st.container(border=True):
-            st.markdown("**Points de charge Standard**")
+            st.markdown("**Informations générales**")
             cols1 = st.columns([1, 1, 1]) 
             fields_l1 = DISPLAY_GROUPS[0]
             for i, field_key in enumerate(fields_l1):
@@ -790,59 +955,114 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
 
 elif st.session_state['step'] == 'FINISHED':
     st.markdown("## 🎉 Formulaire Terminé")
-    st.write(f"Projet : **{st.session_state['project_data'].get('Intitulé')}**")
+    project_name = st.session_state['project_data'].get('Intitulé', 'Projet Inconnu')
+    st.write(f"Projet : **{project_name}**")
+    st.warning('Il est attendu que vous téléchargiez le rapport Word ci-dessous pour le transmettre à votre interlocuteur Yusco', icon="⚠️")
     
+    
+    # 1. SAUVEGARDE FIREBASE
     if not st.session_state['data_saved']:
-        with st.spinner("Sauvegarde dans Firestore et Upload vers Drive en cours..."):
-            
-            # --- MODIFICATION : Initialisation Drive + Sauvegarde ---
-            drive_service = get_drive_service()
-            success = False
-            submission_id_returned = "Erreur Inconnue"
-            
-            if drive_service:
-                 success, submission_id_returned = save_form_data(
-                     st.session_state['collected_data'], 
-                     st.session_state['project_data'],
-                     drive_service=drive_service # On passe le service ici
-                 )
-            else:
-                 st.error("Impossible d'initialiser Google Drive. Sauvegarde annulée.")
+        with st.spinner("Sauvegarde des réponses dans Firestore..."):
+            success, submission_id_returned = save_form_data(
+                st.session_state['collected_data'], 
+                st.session_state['project_data']
+            )
 
             if success:
-                st.balloons()
-                st.success(f"Données sauvegardées et photos uploadées avec succès ! (ID: {submission_id_returned})")
+               # st.success(f"Données textuelles sauvegardées ! (ID: {submission_id_returned})")
                 st.session_state['data_saved'] = True
             else:
-                if drive_service: # Si le service était là mais que save a échoué
-                    st.error(f"Erreur lors de la sauvegarde : {submission_id_returned}")
+                st.error(f"Erreur lors de la sauvegarde : {submission_id_returned}")
                 if st.button("Réessayer la sauvegarde"):
                     st.rerun()
     else:
-        st.info("Les données ont déjà été sauvegardées sur Firestore et Drive.")
+        st.info("Les données sont sauvegardées")
 
-    st.markdown("---")
-    
     if st.session_state['data_saved']:
-        st.markdown("### 📥 Télécharger les données")
-        col_csv, col_zip = st.columns(2)
-        
+        # Préparation des exports
         csv_data = create_csv_export(st.session_state['collected_data'], st.session_state['df_struct'])
-        date_str = datetime.now().strftime('%Y%m%d_%H%M')
-        file_name_csv = f"Export_{st.session_state['project_data'].get('Intitulé', 'Projet')}_{date_str}.csv"
-        
-        with col_csv:
-            st.download_button(label="📄 Télécharger les réponses (CSV)", data=csv_data, file_name=file_name_csv, mime='text/csv')
-
-        # --- Export ZIP Modifié (Info Drive) ---
         zip_buffer = create_zip_export(st.session_state['collected_data'])
+        date_str = datetime.now().strftime('%Y%m%d_%H%M')
         
-        with col_zip:
-            if zip_buffer:
-                file_name_zip = f"Infos_Drive_{st.session_state['project_data'].get('Intitulé', 'Projet')}_{date_str}.zip"
-                st.download_button(label="ℹ️ Info Photos Drive (ZIP)", data=zip_buffer.getvalue(), file_name=file_name_zip, mime='application/zip')
+        # --- 2. TÉLÉCHARGEMENT DIRECT ---
+        st.markdown("### 📥 Télécharger les fichiers")
+        
+        col_csv, col_zip, col_word = st.columns(3)
+        
+        file_name_csv = f"Export_{project_name}_{date_str}.csv"
+        with col_csv:
+            st.download_button(
+                label="📄 CSV", 
+                data=csv_data, 
+                file_name=file_name_csv, 
+                mime='text/csv',
+                use_container_width=True
+            )
+
+        if zip_buffer:
+            file_name_zip = f"Photos_{project_name}_{date_str}.zip"
+            with col_zip:
+                st.download_button(
+                    label="📸 ZIP Photos", 
+                    data=zip_buffer.getvalue(), 
+                    file_name=file_name_zip, 
+                    mime='application/zip',
+                    use_container_width=True
+                )
+        
+        # Génération du rapport Word
+        with st.spinner("Génération du rapport Word..."):
+            try:
+                word_buffer = create_word_report(
+                    st.session_state['collected_data'],
+                    st.session_state['df_struct'],
+                    st.session_state['project_data']
+                )
+                
+                file_name_word = f"Rapport_{project_name}_{date_str}.docx"
+                with col_word:
+                    st.download_button(
+                        label="📋 Rapport Word", 
+                        data=word_buffer.getvalue(), 
+                        file_name=file_name_word, 
+                        mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                        use_container_width=True
+                    )
+            except Exception as e:
+                st.error(f"Erreur lors de la génération du rapport Word : {e}")
     
+        # --- 3. OUVERTURE DE L'APPLICATION NATIVE (MAILTO) ---
+        st.markdown("---")
+        st.markdown("### 📧 Partager par Email")
+        st.info("💡 Téléchargez d'abord les fichiers ci-dessus, puis cliquez sur le bouton ci-dessous pour ouvrir votre application email.")
+        
+        subject = f"Rapport Audit : {project_name}"
+        body = (
+            f"Bonjour,\n\n"
+            f"Veuillez trouver ci-joint le rapport d'audit pour le projet {project_name}.\n"
+            f"Fichiers à joindre :\n"
+            f"- {file_name_csv}\n"
+            f"- {file_name_zip}\n"
+            f"- {file_name_word}\n\n"
+            f"Cordialement."
+        )
+        
+        mailto_link = (
+            f"mailto:?" 
+            f"subject={urllib.parse.quote(subject)}" 
+            f"&body={urllib.parse.quote(body)}"
+        )
+        
+        st.markdown(
+            f'<a href="{mailto_link}" target="_blank" style="text-decoration: none;">'
+            f'<button style="background-color: #E9630C; color: white; border: none; padding: 10px 20px; border-radius: 8px; width: 100%; font-size: 16px; cursor: pointer;">'
+            f'📧 Ouvrir l\'application Email'
+            f'</button>'
+            f'</a>',
+            unsafe_allow_html=True
+        )
+
     st.markdown("---")
-    if st.button("⬅️ Recommencer l'audit"):
+    if st.button("🔄 Recommencer l'audit"):
         st.session_state.clear()
         st.rerun()
