@@ -1,4 +1,4 @@
-# --- IMPORTS ET PRÉPARATION (inchangés) ---
+# --- IMPORTS ET PRÉPARATION ---
 import streamlit as st
 import pandas as pd
 import uuid
@@ -28,6 +28,29 @@ st.markdown("""
     div[data-testid="stButton"] > button { width: 100%; }
 </style>
 """, unsafe_allow_html=True)
+
+# --- NOUVELLE LOGIQUE DE RENOMMAGE ET D'AFFICHAGE DU PROJET ---
+
+PROJECT_RENAME_MAP = {
+    'Intitulé': 'Intitulé',
+    'Fournisseur Bornes AC [Bornes]': 'Fournisseur Bornes AC',
+    'Fournisseur Bornes DC [Bornes]': 'Fournisseur Bornes DC',
+    'L [Plan de Déploiement]': 'PDC Lent',
+    'R [Plan de Déploiement]': 'PDC Rapide',
+    'UR [Plan de Déploiement]': 'PDC Ultra-rapide',
+    'Pré L [Plan de Déploiement]': 'PDC L pré-équipés',
+    'Pré UR [Plan de Déploiement]': 'PDC UR pré-équipés',
+    'Pré R [Plan de Déploiement]': 'PDC R pré-équipés',
+}
+
+DISPLAY_GROUPS = [
+    # Ligne 1 : Fournisseurs (Ordre 1, 2, 3)
+    ['Intitulé', 'Fournisseur Bornes AC [Bornes]', 'Fournisseur Bornes DC [Bornes]'],
+    # Ligne 2 : Déploiements Standard (Ordre 4, 5, 6)
+    ['L [Plan de Déploiement]', 'R [Plan de Déploiement]', 'UR [Plan de Déploiement]'],
+    # Ligne 3 : Déploiements Pré-équipés (Ordre 7, 8, 9)
+    ['Pré L [Plan de Déploiement]', 'Pré UR [Plan de Déploiement]', 'Pré R [Plan de Déploiement]'],
+]
 
 # --- INITIALISATION FIREBASE SÉCURISÉE (inchangée) ---
 def initialize_firebase():
@@ -63,7 +86,7 @@ def initialize_firebase():
 
 db = initialize_firebase()
 
-# --- FONCTIONS DE CHARGEMENT ET SAUVEGARDE FIREBASE ---
+# --- FONCTIONS DE CHARGEMENT ET SAUVEGARDE FIREBASE (inchangées) ---
 
 @st.cache_data(ttl=3600)
 def load_form_structure_from_firestore():
@@ -132,7 +155,7 @@ def load_site_data_from_firestore():
         return None
 
 def save_form_data(collected_data, project_data):
-    """[MODIFICATION] Gère les listes de fichiers pour la sauvegarde Firestore."""
+    """Gère les listes de fichiers pour la sauvegarde Firestore."""
     try:
         cleaned_data = []
         for phase in collected_data:
@@ -141,7 +164,7 @@ def save_form_data(collected_data, project_data):
                 "answers": {}
             }
             for k, v in phase["answers"].items():
-                # [MODIFICATION] Gère une liste de fichiers au lieu d'un seul
+                # Gère une liste de fichiers au lieu d'un seul
                 if isinstance(v, list) and v and hasattr(v[0], 'read'): 
                     # C'est une liste d'objets FileUploader (Photos)
                     file_names = ", ".join([f.name for f in v])
@@ -173,10 +196,10 @@ def save_form_data(collected_data, project_data):
     except Exception as e:
         return False, str(e)
 
-# --- FONCTIONS EXPORT (MODIFIÉES) ---
+# --- FONCTIONS EXPORT (inchangées) ---
 
 def create_csv_export(collected_data, df_struct):
-    """[MODIFICATION] Gère les listes de fichiers dans l'export CSV."""
+    """Gère les listes de fichiers dans l'export CSV et ajoute l'ID/dates."""
     rows = []
     
     submission_id = st.session_state.get('submission_id', 'N/A')
@@ -197,7 +220,7 @@ def create_csv_export(collected_data, df_struct):
             
             # Gérer la valeur (fichier vs texte)
             if isinstance(val, list) and val and hasattr(val[0], 'name'):
-                # [MODIFICATION] Gère une liste de fichiers
+                # Gère une liste de fichiers
                 file_names = ", ".join([f.name for f in val])
                 final_val = f"[Fichiers] {len(val)} photos: {file_names}"
             elif hasattr(val, 'name'):
@@ -220,7 +243,7 @@ def create_csv_export(collected_data, df_struct):
     return df_export.to_csv(index=False, sep=';', encoding='utf-8-sig')
 
 def create_zip_export(collected_data):
-    """[MODIFICATION] Gère l'itération sur la liste de fichiers pour le ZIP."""
+    """Gère l'itération sur la liste de fichiers pour le ZIP."""
     zip_buffer = io.BytesIO()
     has_files = False
     
@@ -251,7 +274,7 @@ def create_zip_export(collected_data):
 
 # --- GESTION DE L'ÉTAT (inchangée) ---
 def init_session_state():
-    """Ajout de l'ID de soumission et de l'heure de début."""
+    """Initialisation de l'état de la session, incluant ID et dates."""
     defaults = {
         'step': 'PROJECT_LOAD',
         'project_data': None,
@@ -298,7 +321,7 @@ def check_condition(row, current_answers, collected_data):
     except Exception: return True
 
 def validate_section(df_questions, section_name, answers, collected_data):
-    # Logique de validation inchangée
+    # La validation doit vérifier si la LISTE est vide pour les questions 'photo' obligatoires
     missing = []
     section_rows = df_questions[df_questions['section'] == section_name]
     for _, row in section_rows.iterrows():
@@ -308,7 +331,6 @@ def validate_section(df_questions, section_name, answers, collected_data):
             q_id = int(row['id'])
             val = answers.get(q_id)
             
-            # [MODIFICATION] La validation doit vérifier si la LISTE est vide pour les photos
             if isinstance(val, list):
                 if not val:
                     missing.append(f"Question {q_id} : {row['question']} (photo(s) manquante(s))")
@@ -319,10 +341,10 @@ def validate_section(df_questions, section_name, answers, collected_data):
 validate_phase = validate_section
 validate_identification = validate_section
 
-# --- COMPOSANTS UI (MODIFIÉ) ---
+# --- COMPOSANTS UI (inchangée) ---
 
 def render_question(row, answers, phase_name, key_suffix, loop_index):
-    """[MODIFICATION] Utilise 'accept_multiple_files=True' pour les photos."""
+    """Utilise 'accept_multiple_files=True' pour les photos et gère l'ID 9 comme un entier."""
     q_id = int(row['id'])
     q_text = row['question']
     q_type = str(row['type']).strip().lower()
@@ -350,12 +372,37 @@ def render_question(row, answers, phase_name, key_suffix, loop_index):
         if "" not in clean_opts: clean_opts.insert(0, "")
         idx = clean_opts.index(current_val) if current_val in clean_opts else 0
         val = st.selectbox("Sélection", clean_opts, index=idx, key=widget_key, label_visibility="collapsed")
+    
+    # --- MODIFICATION POUR ID 9 ---
     elif q_type == 'number':
-        default_val = float(current_val) if current_val else 0.0
-        val = st.number_input("Nombre", value=default_val, key=widget_key, label_visibility="collapsed")
+        if q_id == 9:
+            # Forcer les entiers pour l'ID 9
+            
+            # Assurer que la valeur par défaut est un entier si possible
+            if current_val is not None:
+                try:
+                    default_val = int(float(current_val))
+                except (ValueError, TypeError):
+                    default_val = 0
+            else:
+                default_val = 0
+                
+            val = st.number_input(
+                "Nombre (entier)", 
+                value=default_val, 
+                step=1, 
+                format="%d", # Force l'affichage d'un entier
+                key=widget_key, 
+                label_visibility="collapsed"
+            )
+        else:
+            # Comportement par défaut pour les autres nombres (décimaux autorisés)
+            default_val = float(current_val) if current_val and str(current_val).replace('.', '', 1).isdigit() else 0.0
+            val = st.number_input("Nombre", value=default_val, key=widget_key, label_visibility="collapsed")
+    # --- FIN MODIFICATION ID 9 ---
         
     elif q_type == 'photo':
-        # [MODIFICATION] Ajout de accept_multiple_files=True
+        # Ajout de accept_multiple_files=True
         val = st.file_uploader(
             "Images", 
             type=['png', 'jpg', 'jpeg'], 
@@ -375,16 +422,15 @@ def render_question(row, answers, phase_name, key_suffix, loop_index):
     
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Le FileUploader retourne une liste de fichiers (ou None/[])
+    # Stockage de la valeur (liste de fichiers ou autre)
     if val is not None:
          answers[q_id] = val 
     elif current_val is not None:
-        # Si l'utilisateur n'a pas interagi, on garde les fichiers qui étaient là
         answers[q_id] = current_val
 
-# --- FLUX PRINCIPAL (inchangé) ---
+# --- FLUX PRINCIPAL (Partiellement Modifié) ---
 
-st.markdown('<div class="main-header"><h1>📝Formulaire Chantier (Cloud)</h1></div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header"><h1>📝Formulaire Chantier </h1></div>', unsafe_allow_html=True)
 
 if st.session_state['step'] == 'PROJECT_LOAD':
     st.info("Tentative de chargement de la structure des formulaires...")
@@ -412,12 +458,30 @@ elif st.session_state['step'] == 'PROJECT':
     if 'Intitulé' not in df_site.columns:
         st.error("Colonne 'Intitulé' manquante.")
     else:
-        projects = [""] + df_site['Intitulé'].dropna().unique().tolist()
-        selected_proj = st.selectbox("Rechercher un projet", projects)
+        
+        search_term = st.text_input("Rechercher un projet (Veuillez renseigner au minimum 3 caractères pour le nom de la ville)", key="project_search_input").strip()
+
+        filtered_projects = []
+        selected_proj = None
+        
+        if len(search_term) >= 3:
+            mask = df_site['Intitulé'].str.contains(search_term, case=False, na=False)
+            filtered_projects_df = df_site[mask]
+            
+            filtered_projects = [""] + filtered_projects_df['Intitulé'].dropna().unique().tolist()
+            
+            if filtered_projects:
+                selected_proj = st.selectbox("Résultats de la recherche", filtered_projects)
+            else:
+                st.warning(f"Aucun projet trouvé pour **'{search_term}'**.")
+        
+        elif len(search_term) > 0 and len(search_term) < 3:
+            st.info("Veuillez entrer au moins **3 caractères** pour lancer la recherche.")
+        
         
         if selected_proj:
             row = df_site[df_site['Intitulé'] == selected_proj].iloc[0]
-            st.info(f"Projet sélectionné : {selected_proj} ")
+            st.info(f"Projet sélectionné : **{selected_proj}**")
             
             if st.button("✅ Démarrer l'identification"):
                 st.session_state['project_data'] = row.to_dict()
@@ -469,8 +533,49 @@ elif st.session_state['step'] == 'IDENTIFICATION':
 
 elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
     
-    with st.expander(f"📍 Projet : {st.session_state['project_data'].get('Intitulé')}", expanded=False):
-        st.write("Phases et Identification déjà complétées :")
+    project_intitule = st.session_state['project_data'].get('Intitulé', 'Projet Inconnu')
+    with st.expander(f"📍 Projet : {project_intitule}", expanded=False):
+        
+        # --- DÉBUT AFFICHAGE COMPACT DU PROJET ---
+        project_details = st.session_state['project_data']
+
+        st.write("**Détails du Projet Sélectionné**")
+        
+        # Ligne 1 : Les Fournisseurs (Ordre 1, 2, 3)
+        st.markdown("**1. Identification & Fournisseurs**")
+        # Création de 3 colonnes de taille égale
+        cols1 = st.columns([1, 1, 1]) 
+        fields_l1 = DISPLAY_GROUPS[0]
+        for i, field_key in enumerate(fields_l1):
+            renamed_key = PROJECT_RENAME_MAP.get(field_key, field_key)
+            value = project_details.get(field_key, 'N/A')
+            with cols1[i]:
+                # Utilisation de Markdown pour un affichage "clé : valeur" minimaliste
+                st.markdown(f"{renamed_key} : {value}")
+        
+        # Ligne 2 : Les Nouveaux Déploiements (Ordre 4, 5, 6)
+        st.markdown("**2. Points de charge**")
+        cols2 = st.columns([1, 1, 1])
+        fields_l2 = DISPLAY_GROUPS[1]
+        for i, field_key in enumerate(fields_l2):
+            renamed_key = PROJECT_RENAME_MAP.get(field_key, field_key)
+            value = project_details.get(field_key, 'N/A')
+            with cols2[i]:
+                st.markdown(f"{renamed_key} : {value}")
+
+        # Ligne 3 : Les Déploiements Pré-équipés (Ordre 7, 8, 9)
+        st.markdown("**3. Points de charge Pré-équipés**")
+        cols3 = st.columns([1, 1, 1])
+        fields_l3 = DISPLAY_GROUPS[2]
+        for i, field_key in enumerate(fields_l3):
+            renamed_key = PROJECT_RENAME_MAP.get(field_key, field_key)
+            value = project_details.get(field_key, 'N/A')
+            with cols3[i]:
+                st.markdown(f"{renamed_key} : {value}")
+
+        # --- FIN AFFICHAGE COMPACT DU PROJET ---
+        
+        st.write("**Phases et Identification déjà complétées**")
         for idx, item in enumerate(st.session_state['collected_data']):
             st.write(f"• **{item['phase_name']}** : {len(item['answers'])} réponses")
 
@@ -505,15 +610,15 @@ elif st.session_state['step'] in ['LOOP_DECISION', 'FILL_PHASE']:
             available_phases.append(sec)
         
         if not st.session_state['current_phase_name']:
-             st.markdown("### 📑 Sélection de la phase")
-             phase_choice = st.selectbox("Quelle phase ?", [""] + available_phases)
-             if phase_choice:
-                 st.session_state['current_phase_name'] = phase_choice
-                 st.rerun()
-             if st.button("⬅️ Retour"):
-                 st.session_state['step'] = 'LOOP_DECISION'
-                 st.session_state['current_phase_temp'] = {}
-                 st.rerun()
+              st.markdown("### 📑 Sélection de la phase")
+              phase_choice = st.selectbox("Quelle phase ?", [""] + available_phases)
+              if phase_choice:
+                  st.session_state['current_phase_name'] = phase_choice
+                  st.rerun()
+              if st.button("⬅️ Retour"):
+                  st.session_state['step'] = 'LOOP_DECISION'
+                  st.session_state['current_phase_temp'] = {}
+                  st.rerun()
         else:
             current_phase = st.session_state['current_phase_name']
             st.markdown(f"### 📝 {current_phase}")
