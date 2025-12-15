@@ -1,6 +1,7 @@
 
 # --- IMPORTS ET PRÉPARATION ---
 import streamlit as st
+import utils
 import pandas as pd
 import uuid
 import firebase_admin
