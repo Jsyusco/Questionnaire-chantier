@@ -1,4 +1,3 @@
-
 # --- IMPORTS ET PRÉPARATION ---
 import streamlit as st
 import pandas as pd
@@ -494,7 +493,7 @@ def create_word_report(collected_data, df_struct, project_data):
                 # --- Affichage des autres réponses sous forme de tableau ---
                 
                 table = doc.add_table(rows=1, cols=2)
-                table.style = 'Light Grid Accent 1' # Style de tableau pour le questionnaire
+                table.style = 'Light Grid Accent 4' # Style de tableau pour le questionnaire
                 
                 # Cellule Question
                 q_cell = table.cell(0, 0)
@@ -957,8 +956,6 @@ elif st.session_state['step'] == 'FINISHED':
     st.markdown("## 🎉 Formulaire Terminé")
     project_name = st.session_state['project_data'].get('Intitulé', 'Projet Inconnu')
     st.write(f"Projet : **{project_name}**")
-    st.warning('Il est attendu que vous téléchargiez le rapport Word ci-dessous pour le transmettre à votre interlocuteur Yusco', icon="⚠️")
-    
     
     # 1. SAUVEGARDE FIREBASE
     if not st.session_state['data_saved']:
@@ -969,15 +966,18 @@ elif st.session_state['step'] == 'FINISHED':
             )
 
             if success:
-               # st.success(f"Données textuelles sauvegardées ! (ID: {submission_id_returned})")
+                st.balloons()
+                st.success(f"Données textuelles sauvegardées sur Firestore ! (ID: {submission_id_returned})")
                 st.session_state['data_saved'] = True
             else:
                 st.error(f"Erreur lors de la sauvegarde : {submission_id_returned}")
                 if st.button("Réessayer la sauvegarde"):
                     st.rerun()
     else:
-        st.info("Les données sont sauvegardées")
+        st.info("Les données ont déjà été sauvegardées sur Firestore.")
 
+    st.markdown("---")
+    
     if st.session_state['data_saved']:
         # Préparation des exports
         csv_data = create_csv_export(st.session_state['collected_data'], st.session_state['df_struct'])
@@ -1028,6 +1028,7 @@ elif st.session_state['step'] == 'FINISHED':
                         mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                         use_container_width=True
                     )
+                st.success("✅ Rapport Word généré avec succès !")
             except Exception as e:
                 st.error(f"Erreur lors de la génération du rapport Word : {e}")
     
